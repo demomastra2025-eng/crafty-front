@@ -17,7 +17,7 @@ export function generateMeta({
       canonical
     },
     openGraph: {
-      images: [`./seo.png`]
+      images: [`${process.env.BASE_URL}/seo.png`]
     }
   };
 }
