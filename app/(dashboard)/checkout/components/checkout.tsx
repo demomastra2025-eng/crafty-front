@@ -195,7 +195,7 @@ export default function CheckoutPage() {
               <Card key={item.id}>
                 <CardContent className="flex items-center gap-4">
                   <Image
-                    src={item.image || https://bundui-images.netlify.app/avatars/08.png"}
+                    src={item.image || "https://bundui-images.netlify.app/avatars/08.png"}
                     alt={item.name}
                     width={80}
                     height={80}
@@ -564,7 +564,7 @@ export default function CheckoutPage() {
               <Card key={item.id}>
                 <CardContent className="flex items-center gap-4">
                   <Image
-                    src={item.image || https://bundui-images.netlify.app/avatars/08.png"}
+                    src={item.image || "https://bundui-images.netlify.app/avatars/08.png"}
                     alt={item.name}
                     width={80}
                     height={80}
@@ -696,7 +696,7 @@ export default function CheckoutPage() {
             {orderItems.map((item) => (
               <div key={item.id} className="flex items-center gap-4 rounded-lg bg-gray-50 p-4">
                 <Image
-                  src={item.image || https://bundui-images.netlify.app/avatars/08.png"}
+                  src={item.image || "https://bundui-images.netlify.app/avatars/08.png"}
                   alt={item.name}
                   width={60}
                   height={60}

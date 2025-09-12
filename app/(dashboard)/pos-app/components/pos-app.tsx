@@ -250,7 +250,7 @@ export default function PosApp() {
                 <CardContent className="p-0">
                   <div className="relative aspect-video overflow-hidden rounded-t-lg">
                     <Image
-                      src={item.image || https://bundui-images.netlify.app/avatars/08.png"}
+                      src={item.image || "https://bundui-images.netlify.app/avatars/08.png"}
                       alt={item.name}
                       fill
                       className="object-cover"

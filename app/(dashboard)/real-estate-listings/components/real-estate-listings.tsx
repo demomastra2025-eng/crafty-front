@@ -246,7 +246,7 @@ export default function RealEstateListings() {
                   <div className="flex">
                     <div className="relative h-48 w-80">
                       <img
-                        src={property.image || https://bundui-images.netlify.app/avatars/08.png"}
+                        src={property.image || "https://bundui-images.netlify.app/avatars/08.png"}
                         alt={property.title}
                         className="h-full w-full object-cover"
                       />

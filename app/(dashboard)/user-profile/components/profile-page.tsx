@@ -53,9 +53,9 @@ const projects = [
     date: "10 May 2021",
     leader: "Eileen",
     team: [
-      https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
-      https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
-      https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
     ],
     teamCount: 4,
     progress: 38,
@@ -67,7 +67,10 @@ const projects = [
     name: "Social Banners",
     date: "03 Jan 2021",
     leader: "Owen",
-    team: [https://bundui-images.netlify.app/avatars/08.png?height=24&width=24", https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"],
+    team: [
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+    ],
     teamCount: 2,
     progress: 45,
     icon: <MegaphoneIcon className="h-4 w-4 text-blue-500" />,
@@ -78,7 +81,10 @@ const projects = [
     name: "Logo Designs",
     date: "12 Aug 2021",
     leader: "Keith",
-    team: [https://bundui-images.netlify.app/avatars/08.png?height=24&width=24", https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"],
+    team: [
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+    ],
     teamCount: 1,
     progress: 92,
     icon: <PaletteIcon className="h-4 w-4 text-purple-500" />,
@@ -89,7 +95,10 @@ const projects = [
     name: "IOS App Design",
     date: "19 Apr 2021",
     leader: "Merline",
-    team: [https://bundui-images.netlify.app/avatars/08.png?height=24&width=24", https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"],
+    team: [
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+    ],
     teamCount: 1,
     progress: 56,
     icon: <SmartphoneIcon className="h-4 w-4 text-green-500" />,
@@ -100,7 +109,10 @@ const projects = [
     name: "Figma Dashboards",
     date: "08 Apr 2021",
     leader: "Harmonia",
-    team: [https://bundui-images.netlify.app/avatars/08.png?height=24&width=24", https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"],
+    team: [
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+    ],
     teamCount: 0,
     progress: 25,
     icon: <FigmaIcon className="h-4 w-4 text-red-500" />,
@@ -111,7 +123,10 @@ const projects = [
     name: "Crypto Admin",
     date: "29 Sept 2021",
     leader: "Allyson",
-    team: [https://bundui-images.netlify.app/avatars/08.png?height=24&width=24", https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"],
+    team: [
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+    ],
     teamCount: 1,
     progress: 36,
     icon: <LockIcon className="h-4 w-4 text-yellow-500" />,
@@ -122,7 +137,10 @@ const projects = [
     name: "Create Website",
     date: "20 Mar 2021",
     leader: "Georgie",
-    team: [https://bundui-images.netlify.app/avatars/08.png?height=24&width=24", https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"],
+    team: [
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24",
+      "https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+    ],
     teamCount: 3,
     progress: 72,
     icon: <CodeIcon className="h-4 w-4 text-cyan-500" />,
@@ -332,7 +350,7 @@ export default function ProfilePage() {
                   <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
                     <Avatar className="h-6 w-6">
                       <AvatarImage
-                        src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                        src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
                         alt="Lester McCarthy"
                       />
                       <AvatarFallback>LM</AvatarFallback>
@@ -356,15 +374,24 @@ export default function ProfilePage() {
                   <p className="text-sm text-gray-600">6 team members in a project</p>
                   <div className="mt-2 flex items-center gap-2">
                     <Avatar className="h-6 w-6">
-                      <AvatarImage src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24" alt="Avatar 1" />
+                      <AvatarImage
+                        src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                        alt="Avatar 1"
+                      />
                       <AvatarFallback>A1</AvatarFallback>
                     </Avatar>
                     <Avatar className="-ml-2 h-6 w-6">
-                      <AvatarImage src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24" alt="Avatar 2" />
+                      <AvatarImage
+                        src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                        alt="Avatar 2"
+                      />
                       <AvatarFallback>A2</AvatarFallback>
                     </Avatar>
                     <Avatar className="-ml-2 h-6 w-6">
-                      <AvatarImage src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24" alt="Avatar 3" />
+                      <AvatarImage
+                        src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                        alt="Avatar 3"
+                      />
                       <AvatarFallback>A3</AvatarFallback>
                     </Avatar>
                     <div className="-ml-2 flex h-6 w-6 items-center justify-center rounded-full bg-gray-200 text-xs text-gray-600">
@@ -416,7 +443,9 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-3">
                       <Avatar className="h-10 w-10">
                         <AvatarImage
-                          src={connection.avatar || https://bundui-images.netlify.app/avatars/08.png"}
+                          src={
+                            connection.avatar || "https://bundui-images.netlify.app/avatars/08.png"
+                          }
                           alt={connection.name}
                         />
                         <AvatarFallback>
@@ -558,7 +587,9 @@ export default function ProfilePage() {
                           {project.team.map((avatarSrc, idx) => (
                             <Avatar key={idx} className="h-6 w-6 border-2 border-white">
                               <AvatarImage
-                                src={avatarSrc || https://bundui-images.netlify.app/avatars/08.png"}
+                                src={
+                                  avatarSrc || "https://bundui-images.netlify.app/avatars/08.png"
+                                }
                                 alt={`Team member ${idx + 1}`}
                               />
                               <AvatarFallback>TM</AvatarFallback>

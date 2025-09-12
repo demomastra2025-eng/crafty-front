@@ -45,7 +45,7 @@ export function SecuritySettings() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Image
-                  src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                  src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
                   alt="Google Authenticator"
                   width={24}
                   height={24}
@@ -66,7 +66,7 @@ export function SecuritySettings() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Image
-                  src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                  src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
                   alt="Okta Verify"
                   width={24}
                   height={24}
@@ -84,7 +84,7 @@ export function SecuritySettings() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Image
-                  src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
+                  src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=24"
                   alt="Email verification"
                   width={24}
                   height={24}

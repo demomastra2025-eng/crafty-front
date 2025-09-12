@@ -142,7 +142,10 @@ export default function TopSellingStores() {
                 <TableCell>
                   <div className="flex items-center space-x-3">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src={store.avatar || https://bundui-images.netlify.app/avatars/08.png"} alt={store.name} />
+                      <AvatarImage
+                        src={store.avatar || "https://bundui-images.netlify.app/avatars/08.png"}
+                        alt={store.name}
+                      />
                       <AvatarFallback>
                         <Store className="h-4 w-4" />
                       </AvatarFallback>

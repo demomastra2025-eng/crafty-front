@@ -383,7 +383,7 @@ export default function ProductFilter() {
               <div className={viewMode === "list" ? "w-48 flex-shrink-0" : ""}>
                 <div className="relative">
                   <Image
-                    src={product.image || https://bundui-images.netlify.app/avatars/08.png"}
+                    src={product.image || "https://bundui-images.netlify.app/avatars/08.png"}
                     alt={product.title}
                     width={200}
                     height={200}

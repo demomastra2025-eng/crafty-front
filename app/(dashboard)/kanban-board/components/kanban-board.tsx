@@ -371,7 +371,12 @@ export default function KanbanBoard() {
                           <div className="flex -space-x-2 overflow-hidden">
                             {task.users.map((user, index) => (
                               <Avatar key={index} className="border-2 border-white">
-                                <AvatarImage src={user.src || https://bundui-images.netlify.app/avatars/08.png"} alt={user.alt} />
+                                <AvatarImage
+                                  src={
+                                    user.src || "https://bundui-images.netlify.app/avatars/08.png"
+                                  }
+                                  alt={user.alt}
+                                />
                                 <AvatarFallback>{user.fallback}</AvatarFallback>
                               </Avatar>
                             ))}

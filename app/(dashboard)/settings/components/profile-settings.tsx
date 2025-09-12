@@ -33,7 +33,10 @@ export function ProfileSettings() {
       <CardContent className="space-y-6">
         <div className="flex items-center gap-4">
           <Avatar className="h-20 w-20">
-            <AvatarImage src=https://bundui-images.netlify.app/avatars/08.png?height=80&width=80" alt="Profile picture" />
+            <AvatarImage
+              src="https://bundui-images.netlify.app/avatars/08.png?height=80&width=80"
+              alt="Profile picture"
+            />
             <AvatarFallback className="bg-background">AG</AvatarFallback>
           </Avatar>
           <div className="flex gap-2">
@@ -91,7 +94,7 @@ export function ProfileSettings() {
                   <SelectItem value="United States">
                     <div className="flex items-center gap-2">
                       <Image
-                        src=https://bundui-images.netlify.app/avatars/08.png?height=16&width=16"
+                        src="https://bundui-images.netlify.app/avatars/08.png?height=16&width=16"
                         alt="US Flag"
                         width={16}
                         height={16}
@@ -102,7 +105,7 @@ export function ProfileSettings() {
                   <SelectItem value="Canada">
                     <div className="flex items-center gap-2">
                       <Image
-                        src=https://bundui-images.netlify.app/avatars/08.png?height=16&width=16"
+                        src="https://bundui-images.netlify.app/avatars/08.png?height=16&width=16"
                         alt="Canada Flag"
                         width={16}
                         height={16}

@@ -286,7 +286,7 @@ export default function JobPostings() {
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Avatar className="h-12 w-12">
-              <AvatarImage src=https://bundui-images.netlify.app/avatars/08.png" />
+              <AvatarImage src="https://bundui-images.netlify.app/avatars/08.png" />
               <AvatarFallback>R</AvatarFallback>
             </Avatar>
             <div>

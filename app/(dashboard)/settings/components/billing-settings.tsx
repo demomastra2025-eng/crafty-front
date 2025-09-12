@@ -77,7 +77,7 @@ export function BillingSettings() {
             <div className="flex items-center justify-between rounded-md border p-4">
               <div className="flex items-center gap-3">
                 <Image
-                  src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=36"
+                  src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=36"
                   alt="Visa"
                   width={36}
                   height={24}
@@ -98,7 +98,7 @@ export function BillingSettings() {
             <div className="flex items-center justify-between rounded-md border p-4">
               <div className="flex items-center gap-3">
                 <Image
-                  src=https://bundui-images.netlify.app/avatars/08.png?height=24&width=36"
+                  src="https://bundui-images.netlify.app/avatars/08.png?height=24&width=36"
                   alt="Mastercard"
                   width={36}
                   height={24}

@@ -49,7 +49,7 @@ export function ChatArea({ conversation, messages, onToggleProfile }: ChatAreaPr
           <div className="relative">
             <Avatar className="h-10 w-10">
               <AvatarImage
-                src={conversation.avatar || https://bundui-images.netlify.app/avatars/08.png"}
+                src={conversation.avatar || "https://bundui-images.netlify.app/avatars/08.png"}
                 alt={conversation.name}
               />
               <AvatarFallback>
