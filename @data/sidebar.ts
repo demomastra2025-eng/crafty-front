@@ -80,7 +80,7 @@ export const sidebarData = {
         },
         {
           title: "Kanban Board",
-          url: "kanban-board",
+          url: "/kanban-board",
           icon: KanbanIcon
         },
         {
