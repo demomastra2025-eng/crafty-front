@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
-import React from "react";
+import React, { Fragment } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   NavigationMenu,
@@ -89,9 +89,9 @@ export const Navbar = () => {
                   </SheetHeader>
 
                   <div className="flex flex-col gap-2">
-                    {routeList.map((route) => (
+                    {routeList.map((route, i) => (
                       <Button
-                        key={route.href}
+                        key={i}
                         onClick={() => setIsOpen(false)}
                         asChild
                         variant="ghost"
@@ -115,8 +115,8 @@ export const Navbar = () => {
           {/* <!-- Desktop --> */}
           <NavigationMenu className="mx-auto hidden lg:block">
             <NavigationMenuList className="space-x-0">
-              {routeList.map((route) => (
-                <>
+              {routeList.map((route, i) => (
+                <React.Fragment key={i}>
                   {route.items?.length ? (
                     <NavigationMenuItem key={route.label}>
                       <NavigationMenuTrigger>{route.label}</NavigationMenuTrigger>
@@ -143,7 +143,7 @@ export const Navbar = () => {
                       </NavigationMenuLink>
                     </NavigationMenuItem>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </NavigationMenuList>
           </NavigationMenu>

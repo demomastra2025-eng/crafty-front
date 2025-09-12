@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { sidebarData } from "@/@data/sidebar";
+import { Fragment } from "react";
 
 export type NavMainProps = typeof sidebarData.navMain;
 
@@ -33,12 +34,12 @@ export function NavMain({ items }: { items: NavMainProps }) {
   return (
     <SidebarGroup>
       <SidebarGroupContent className="flex flex-col gap-2">
-        {items.map((item) => (
-          <>
+        {items.map((item, i) => (
+          <Fragment key={i}>
             {item.title && <SidebarGroupLabel>{item.title}</SidebarGroupLabel>}
             <SidebarMenu>
               {item.items.map((l, index) => (
-                <>
+                <Fragment key={index}>
                   {l?.items?.length ? (
                     <>
                       <div className="hidden group-data-[collapsible=icon]:block">
@@ -104,10 +105,10 @@ export function NavMain({ items }: { items: NavMainProps }) {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}
-                </>
+                </Fragment>
               ))}
             </SidebarMenu>
-          </>
+          </Fragment>
         ))}
       </SidebarGroupContent>
     </SidebarGroup>

@@ -9,7 +9,7 @@ interface Props extends Omit<React.ComponentProps<typeof Link>, "href"> {
 
 export default function Logo(props: Props) {
   return (
-    <Link href="#" {...props}>
+    <Link href="/" {...props}>
       <Image src="/logo.png" alt="logo" width={28} height={28} className="rounded-md" />
       <span className="text-base font-semibold">Shadcn Dashboard</span>
     </Link>

@@ -15,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${jakartaSans.className} antialiased`}>
+    <html lang="en" className={`${jakartaSans.className} antialiased`} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );
