@@ -12,7 +12,15 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3001](http://localhost:3001) with your browser to see the result.
+
+## Environment
+
+Set Postgres connection for chat data:
+
+```
+DATABASE_URL=postgresql://POSTGRES_USERNAME:POSTGRES_PASSWORD@localhost:5432/POSTGRES_DATABASE
+```
 
 
 [![](https://raw.githubusercontent.com/shadcn-examples/shadcn-ui-dashboard/refs/heads/main/public/hero.png)](https://shadcnuidashboard.com/)

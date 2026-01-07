@@ -1,20 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { User, Lock, Bell, CreditCard, Puzzle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { User, Lock, KeyRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ProfileSettings } from "./profile-settings";
 import { SecuritySettings } from "./security-settings";
-import { NotificationSettings } from "./notification-settings";
-import { BillingSettings } from "./billing-settings";
-import { IntegrationSettings } from "./integration-settings";
+import { AccessSettings } from "./access-settings";
 
-type Section = "profile" | "security" | "notifications" | "billing" | "integrations";
+type Section = "profile" | "security" | "access";
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
   const [activeSection, setActiveSection] = useState<Section>("profile");
+
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (section === "profile" || section === "security" || section === "access") {
+      setActiveSection(section);
+    }
+  }, [searchParams]);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -22,12 +29,8 @@ export default function SettingsPage() {
         return <ProfileSettings />;
       case "security":
         return <SecuritySettings />;
-      case "notifications":
-        return <NotificationSettings />;
-      case "billing":
-        return <BillingSettings />;
-      case "integrations":
-        return <IntegrationSettings />;
+      case "access":
+        return <AccessSettings />;
       default:
         return <ProfileSettings />;
     }
@@ -64,31 +67,11 @@ export default function SettingsPage() {
               variant="ghost"
               className={cn(
                 "w-full justify-start gap-2",
-                activeSection === "notifications" && "text-primary bg-gray-100"
+                activeSection === "access" && "text-primary bg-gray-100"
               )}
-              onClick={() => setActiveSection("notifications")}>
-              <Bell className="h-5 w-5" />
-              Notification
-            </Button>
-            <Button
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-2",
-                activeSection === "billing" && "text-primary bg-gray-100"
-              )}
-              onClick={() => setActiveSection("billing")}>
-              <CreditCard className="h-5 w-5" />
-              Billing
-            </Button>
-            <Button
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-2",
-                activeSection === "integrations" && "text-primary bg-gray-100"
-              )}
-              onClick={() => setActiveSection("integrations")}>
-              <Puzzle className="h-5 w-5" />
-              Integration
+              onClick={() => setActiveSection("access")}>
+              <KeyRound className="h-5 w-5" />
+              Access
             </Button>
           </nav>
         </aside>

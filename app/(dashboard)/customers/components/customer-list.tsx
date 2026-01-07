@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   flexRender,
   getCoreRowModel,
@@ -28,6 +29,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,10 +46,18 @@ import {
 } from "@/components/ui/table";
 import StatCards from "@/app/(dashboard)/customers/components/stat-cards";
 import NewCustomer from "@/app/(dashboard)/customers/components/new-customer";
-import { supabase } from "@/lib/supabase-client";
-import { findContacts, resolveInstance, updateBlockStatus, readPreferredInstance } from "@/lib/evo-api";
+import { fetchContacts, fetchMessages } from "@/lib/db-api";
+import {
+  findContacts,
+  resolveInstance,
+  updateBlockStatus,
+  readPreferredInstance,
+  setPreferredInstance,
+  getApiKey
+} from "@/lib/evo-api";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
+import { getEvoSocket } from "@/lib/evo-socket";
 
 export interface Customer {
   id: string;
@@ -78,36 +88,45 @@ export default function CustomerList() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [blockedMap, setBlockedMap] = useState<Record<string, boolean>>({});
+  const [apiKey, setApiKeyState] = useState<string | null>(() => getApiKey());
+  const [hasInstance, setHasInstance] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
+  const loadDataRef = useRef<() => void>(() => {});
+  const messageStatsRef = useRef<Record<string, { count: number; lastTs?: number }>>({});
+  const lastMessageIdRef = useRef<Record<string, string>>({});
+  const contactMetaRef = useRef<Record<string, { name?: string; avatar?: string }>>({});
+  const showApiKeyAlert = !apiKey;
+  const showInstanceAlert = Boolean(apiKey) && !hasInstance;
+  const showEmptyAlert = Boolean(apiKey) && hasInstance && !loading && customers.length === 0;
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const currentKey = apiKey || getApiKey();
+      if (!currentKey) {
+        return;
+      }
       const preferred = readPreferredInstance();
       const instanceId = preferred?.id || null;
       const instanceName = preferred?.name || null;
 
-      const contactQuery = supabase
-        .from("Contact")
-        .select("id,remoteJid,pushName,profilePicUrl,createdAt,instanceId");
-      const messageQuery = supabase
-        .from("Message")
-        .select("id,key,messageTimestamp,instanceId")
-        .order("messageTimestamp", { ascending: false })
-        .limit(500);
-
-      const [{ data: contactRows }, { data: messageRows }, resolvedInstanceName] = await Promise.all([
-        instanceId ? contactQuery.eq("instanceId", instanceId) : contactQuery,
-        instanceId ? messageQuery.eq("instanceId", instanceId) : messageQuery,
-        instanceName ? Promise.resolve(instanceName) : resolveInstance()
+      const [{ contacts: contactRows }, { messages: messageRows }] = await Promise.all([
+        fetchContacts(instanceId),
+        fetchMessages({ instanceId, limit: 500, order: "desc", recent: true }),
       ]);
+      const resolvedInstanceName = instanceName
+        ? instanceName
+        : await resolveInstance().catch(() => null);
 
       const targetInstanceName = instanceName || resolvedInstanceName || "";
+      setHasInstance(Boolean(targetInstanceName));
+      if (!targetInstanceName) {
+        // баннер отображается через showInstanceAlert
+      }
+      if (!instanceName && resolvedInstanceName) {
+        setPreferredInstance({ name: resolvedInstanceName });
+      }
       let evoContacts: EvoContact[] = [];
       if (targetInstanceName) {
         try {
@@ -121,7 +140,10 @@ export default function CustomerList() {
         }
       }
 
-      type MessageRow = { key?: { remoteJid?: string | null; remoteJidAlt?: string | null }; messageTimestamp?: number | null };
+      type MessageRow = {
+        key?: { remoteJid?: string | null; remoteJidAlt?: string | null; id?: string | null };
+        messageTimestamp?: number | null;
+      };
       const messageByRemote: Record<string, { count: number; lastTs?: number }> = {};
       (messageRows || []).forEach((raw) => {
         const row = raw as MessageRow;
@@ -189,10 +211,156 @@ export default function CustomerList() {
         });
 
       setCustomers([...merged, ...extras]);
+      messageStatsRef.current = messageByRemote;
+      const meta: Record<string, { name?: string; avatar?: string }> = {};
+      merged.forEach((c) => {
+        if (!c.remoteJid) return;
+        meta[c.remoteJid] = { name: c.name, avatar: c.avatar };
+      });
+      extras.forEach((c) => {
+        if (!c.remoteJid || meta[c.remoteJid]) return;
+        meta[c.remoteJid] = { name: c.name, avatar: c.avatar };
+      });
+      contactMetaRef.current = meta;
     } finally {
       setLoading(false);
     }
-  }
+  }, [apiKey, toast]);
+
+  useEffect(() => {
+    loadDataRef.current = loadData;
+  }, [loadData]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<string | null>)?.detail ?? null;
+      const nextKey = detail ?? getApiKey();
+      setApiKeyState(nextKey);
+      setCustomers([]);
+      setBlockedMap({});
+      if (nextKey) {
+        loadDataRef.current();
+      }
+    };
+    window.addEventListener("crafty:apikey-changed", handler as EventListener);
+    return () => {
+      window.removeEventListener("crafty:apikey-changed", handler as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    const socket = getEvoSocket(apiKey);
+    if (!socket) return;
+
+    const ensureCustomer = (remoteJid: string, overrides?: Partial<Customer>) => {
+      setCustomers((prev) => {
+        const idx = prev.findIndex((c) => c.remoteJid === remoteJid);
+        if (idx === -1) {
+          const meta = contactMetaRef.current[remoteJid];
+          const stats = messageStatsRef.current[remoteJid] || { count: 0, lastTs: undefined };
+          const lastOrder = stats.lastTs ? new Date(stats.lastTs * 1000).toISOString() : "";
+          const next: Customer = {
+            id: remoteJid,
+            name: meta?.name || remoteJid,
+            phone: remoteJid.replace(/@.*/, ""),
+            remoteJid,
+            totalOrders: stats.count,
+            totalSpent: 0,
+            lastOrder,
+            isActive: stats.lastTs ? Date.now() - stats.lastTs * 1000 < 24 * 60 * 60 * 1000 : false,
+            avatar: meta?.avatar,
+            ...overrides
+          };
+          return [next, ...prev];
+        }
+        const updated = { ...prev[idx], ...overrides };
+        const next = [...prev];
+        next[idx] = updated;
+        return next;
+      });
+    };
+
+    const handleConnect = () => {
+      loadDataRef.current();
+    };
+    socket.on("connect", handleConnect);
+
+    const handleContactsUpdate = (payload: { data?: EvoContact | EvoContact[] }) => {
+      const data = payload?.data;
+      const items = Array.isArray(data) ? data : data ? [data] : [];
+      items.forEach((item) => {
+        const remoteJid = item.remoteJid || item.number;
+        if (!remoteJid) return;
+        const name = item.pushName || item.name || remoteJid;
+        const avatar = item.profilePicUrl || undefined;
+        contactMetaRef.current[remoteJid] = { name, avatar };
+        ensureCustomer(remoteJid, { name, avatar, remoteJid, phone: remoteJid.replace(/@.*/, "") });
+      });
+    };
+    socket.on("contacts.update", handleContactsUpdate);
+
+    const handleMessagesUpsert = (payload: {
+      data?: {
+        key?: { remoteJid?: string | null; remoteJidAlt?: string | null; id?: string | null };
+        messageTimestamp?: number | null;
+      };
+    }) => {
+      const data = payload?.data;
+      const remoteJid = data?.key?.remoteJid || data?.key?.remoteJidAlt || null;
+      if (!remoteJid) return;
+      const keyId = data?.key?.id || null;
+      if (keyId && lastMessageIdRef.current[remoteJid] === keyId) return;
+      if (keyId) lastMessageIdRef.current[remoteJid] = keyId;
+      const ts = data?.messageTimestamp || Math.floor(Date.now() / 1000);
+      const stats = messageStatsRef.current[remoteJid] || { count: 0, lastTs: undefined };
+      stats.count += 1;
+      stats.lastTs = Math.max(stats.lastTs || 0, ts || 0);
+      messageStatsRef.current[remoteJid] = stats;
+      const lastOrder = stats.lastTs ? new Date(stats.lastTs * 1000).toISOString() : "";
+      ensureCustomer(remoteJid, {
+        totalOrders: stats.count,
+        lastOrder,
+        isActive: stats.lastTs ? Date.now() - stats.lastTs * 1000 < 24 * 60 * 60 * 1000 : false
+      });
+    };
+    socket.on("messages.upsert", handleMessagesUpsert);
+
+    const handleMessagesUpdate = (payload: { data?: { remoteJid?: string | null } }) => {
+      const remoteJid = payload?.data?.remoteJid || null;
+      if (!remoteJid) return;
+      ensureCustomer(remoteJid);
+    };
+    socket.on("messages.update", handleMessagesUpdate);
+
+    const handleInstanceCreate = () => loadDataRef.current();
+    const handleInstanceDelete = () => loadDataRef.current();
+    const handleConnectionUpdate = () => loadDataRef.current();
+    const handleStatusInstance = () => loadDataRef.current();
+    const handleConnectError = (err: unknown) => {
+      console.warn("socket connect_error", err);
+    };
+    socket.on("instance.create", handleInstanceCreate);
+    socket.on("instance.delete", handleInstanceDelete);
+    socket.on("connection.update", handleConnectionUpdate);
+    socket.on("status.instance", handleStatusInstance);
+    socket.on("connect_error", handleConnectError);
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("contacts.update", handleContactsUpdate);
+      socket.off("messages.upsert", handleMessagesUpsert);
+      socket.off("messages.update", handleMessagesUpdate);
+      socket.off("instance.create", handleInstanceCreate);
+      socket.off("instance.delete", handleInstanceDelete);
+      socket.off("connection.update", handleConnectionUpdate);
+      socket.off("status.instance", handleStatusInstance);
+      socket.off("connect_error", handleConnectError);
+    };
+  }, [apiKey]);
 
   const columns: ColumnDef<Customer>[] = [
     {
@@ -401,7 +569,7 @@ export default function CustomerList() {
       });
     } catch (err) {
       console.error("block/unblock failed", err);
-      alert("Не удалось выполнить операцию блокировки");
+      toast({ title: "Не удалось выполнить операцию" });
       setBlockedMap((prev) => ({ ...prev, [customer.remoteJid!]: !nextState }));
     }
   }
@@ -422,6 +590,35 @@ export default function CustomerList() {
         newCustomers={newCustomers}
         totalCustomers={totalCustomers}
       />
+
+      {showApiKeyAlert ? (
+        <Alert variant="destructive">
+          <AlertTitle>Нет API-ключа</AlertTitle>
+          <AlertDescription>
+            <p>Добавьте ключ в Settings → Access, чтобы увидеть клиентов.</p>
+            <Button asChild size="sm" className="mt-2">
+              <Link href="/settings">Открыть Settings</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : showInstanceAlert ? (
+        <Alert>
+          <AlertTitle>Инстансы не найдены</AlertTitle>
+          <AlertDescription>
+            <p>Создайте инстанс и подключите WhatsApp, чтобы появились клиенты.</p>
+            <Button asChild size="sm" className="mt-2">
+              <Link href="/connections">Перейти к Connections</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : showEmptyAlert ? (
+        <Alert>
+          <AlertTitle>Клиентов пока нет</AlertTitle>
+          <AlertDescription>
+            <p>Как только пойдут диалоги, список появится здесь автоматически.</p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row">

@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -9,8 +14,31 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { BadgeCheck, Bell, CreditCard, LogOut, Sparkles } from "lucide-react";
+import { setApiKey } from "@/lib/evo-api";
+import { fetchMe, setAuthToken } from "@/lib/evo-auth";
 
 export default function UserMenu() {
+  const router = useRouter();
+  const [sessionUser, setSessionUser] = useState<{ name?: string | null; email: string } | null>(null);
+
+  useEffect(() => {
+    fetchMe()
+      .then((data) => setSessionUser({ name: data.name, email: data.email }))
+      .catch(() => setSessionUser(null));
+  }, []);
+
+  const displayName = useMemo(
+    () => sessionUser?.name || sessionUser?.email || "User",
+    [sessionUser?.name, sessionUser?.email]
+  );
+  const displayEmail = useMemo(() => sessionUser?.email || "", [sessionUser?.email]);
+
+  const handleLogout = () => {
+    setAuthToken(null);
+    setApiKey(null);
+    router.push("/auth");
+  };
+
   return (
     <div className="ms-4">
       <DropdownMenu>
@@ -18,7 +46,7 @@ export default function UserMenu() {
           <Avatar className="size-8 rounded-full">
             <AvatarImage
               src={`${process.env.DASHBOARD_BASE_URL}/images/avatars/1.png`}
-              alt="shadcn ui kit"
+              alt={displayName}
             />
             <AvatarFallback className="rounded-lg">TB</AvatarFallback>
           </Avatar>
@@ -31,13 +59,13 @@ export default function UserMenu() {
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarImage
                   src={`${process.env.DASHBOARD_BASE_URL}/images/avatars/1.png`}
-                  alt="shadcn ui kit"
+                  alt={displayName}
                 />
                 <AvatarFallback className="rounded-lg">CN</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Toby Belhome</span>
-                <span className="truncate text-xs text-muted-foreground">contact@bundui.io</span>
+                <span className="truncate font-semibold">{displayName}</span>
+                <span className="truncate text-xs text-muted-foreground">{displayEmail}</span>
               </div>
             </div>
           </DropdownMenuLabel>
@@ -64,7 +92,7 @@ export default function UserMenu() {
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={handleLogout}>
             <LogOut className="me-2 size-4" />
             Log out
           </DropdownMenuItem>

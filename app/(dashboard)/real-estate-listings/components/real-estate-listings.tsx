@@ -482,7 +482,7 @@ export default function RealEstateListings() {
           })}
 
           {filteredItems.length === 0 && !loading && (
-            <div className="rounded-lg border bg-white p-6 text-center text-gray-600">
+            <div className="rounded-lg border bg-transparent p-6 text-center text-gray-600">
               По вашим фильтрам ничего не найдено.
             </div>
           )}
@@ -493,7 +493,7 @@ export default function RealEstateListings() {
                 variant="outline"
                 disabled={loading}
                 onClick={() => loadPage(page + 1, false)}>
-                {loading ? "Загрузка..." : "Показать ещё"}
+                {loading ? "Загрузка..." : "Eщё"}
               </Button>
             </div>
           )}

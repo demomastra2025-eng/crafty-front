@@ -202,12 +202,12 @@ export function ConversationList({
           ))
         )}
       </div>
-      <div className="border-t border-gray-100 p-3">
+      <div className="border-t border-gray-100 p-2">
         <button
           onClick={onLoadMore}
           disabled={!hasMore || loadingMore}
           className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60">
-          {loadingMore ? "Загрузка..." : hasMore ? "Показать еще 20" : "Все чаты загружены"}
+          {loadingMore ? "Загрузка..." : hasMore ? "Еще 20 чатов" : "Все чаты загружены"}
         </button>
       </div>
     </div>

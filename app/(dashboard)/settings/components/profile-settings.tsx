@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import { Upload, Trash } from "lucide-react";
 
 import {
@@ -22,8 +23,43 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { fetchMe } from "@/lib/evo-auth";
 
 export function ProfileSettings() {
+  const [user, setUser] = useState<{ id: string; email: string; name?: string | null } | null>(null);
+  const [phone, setPhone] = useState("");
+
+  useEffect(() => {
+    fetchMe()
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  const nameParts = useMemo(() => {
+    const base = (user?.name || "").trim();
+    if (!base) return { first: "", last: "" };
+    const [first, ...rest] = base.split(/\s+/);
+    return { first: first || "", last: rest.join(" ") };
+  }, [user?.name]);
+
+  const formatKzPhone = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    const local = digits.length > 10 && digits.startsWith("7") ? digits.slice(1, 11) : digits.slice(0, 10);
+    const area = local.slice(0, 3);
+    const part1 = local.slice(3, 6);
+    const part2 = local.slice(6, 8);
+    const part3 = local.slice(8, 10);
+    let result = "";
+    if (area.length) {
+      result += ` (${area}`;
+      if (area.length === 3) result += ")";
+    }
+    if (part1.length) result += ` ${part1}`;
+    if (part2.length) result += `-${part2}`;
+    if (part3.length) result += `-${part3}`;
+    return result;
+  };
+
   return (
     <Card className="border-none shadow-none">
       <CardHeader>
@@ -53,30 +89,33 @@ export function ProfileSettings() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="firstName">First name</Label>
-            <Input id="firstName" defaultValue="Angelina" />
+            <Input id="firstName" value={nameParts.first} readOnly />
           </div>
           <div className="space-y-2">
             <Label htmlFor="userName">User name</Label>
-            <Input id="userName" defaultValue="Gotelli" />
+            <Input id="userName" value={nameParts.last} readOnly />
           </div>
           <div className="col-span-full space-y-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" defaultValue="carolyn_h@hotmail.com" />
+            <Input id="email" type="email" value={user?.email || ""} readOnly />
           </div>
           <div className="col-span-full space-y-2">
             <Label htmlFor="phoneNumber">Phone number</Label>
             <div className="flex gap-2">
-              <Select defaultValue="+1">
+              <Select defaultValue="+7">
                 <SelectTrigger className="w-[100px]">
                   <SelectValue placeholder="Country Code" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="+1">+1</SelectItem>
-                  <SelectItem value="+44">+44</SelectItem>
-                  <SelectItem value="+91">+91</SelectItem>
+                  <SelectItem value="+7">+7</SelectItem>
                 </SelectContent>
               </Select>
-              <Input id="phoneNumber" defaultValue="121231234" />
+              <Input
+                id="phoneNumber"
+                value={formatKzPhone(phone)}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(7__) ___-__-__"
+              />
             </div>
           </div>
         </div>
@@ -86,31 +125,20 @@ export function ProfileSettings() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="col-span-full space-y-2">
               <Label htmlFor="country">Country</Label>
-              <Select defaultValue="United States">
+              <Select defaultValue="Kazakhstan">
                 <SelectTrigger>
                   <SelectValue placeholder="Select country" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="United States">
+                  <SelectItem value="Kazakhstan">
                     <div className="flex items-center gap-2">
                       <Image
                         src="/logo.png"
-                        alt="US Flag"
+                        alt="Kazakhstan Flag"
                         width={16}
                         height={16}
                       />
-                      United States
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="Canada">
-                    <div className="flex items-center gap-2">
-                      <Image
-                        src="/logo.png"
-                        alt="Canada Flag"
-                        width={16}
-                        height={16}
-                      />
-                      Canada
+                      Kazakhstan
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -118,15 +146,15 @@ export function ProfileSettings() {
             </div>
             <div className="col-span-full space-y-2">
               <Label htmlFor="address">Address</Label>
-              <Input id="address" defaultValue="123 Main St." />
+              <Input id="address" placeholder="ул. Абая, 10" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="city">City</Label>
-              <Input id="city" defaultValue="New York" />
+              <Input id="city" placeholder="Алматы" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="postalCode">Postal Code</Label>
-              <Input id="postalCode" defaultValue="10001" />
+              <Input id="postalCode" placeholder="050000" />
             </div>
           </div>
         </div>

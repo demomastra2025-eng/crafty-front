@@ -3,8 +3,8 @@
 import type React from "react";
 
 import { useEffect, useRef, useState } from "react";
-import { Info, Paperclip, Send, Tag, Pencil, Download, X, Sparkles } from "lucide-react";
-import { LuCheck, LuCheckCheck, LuFileImage, LuFileAudio, LuFileText, LuFileVideo } from "react-icons/lu";
+import { Info, Paperclip, Send, Tag, Pencil, Download, X, Loader2 } from "lucide-react";
+import { LuBot, LuCheck, LuCheckCheck, LuFileImage, LuFileAudio, LuFileText, LuFileVideo } from "react-icons/lu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ interface Message {
   senderId: string;
   content: string;
   timestamp: string;
+  timestampMs?: number;
   source?: string;
   isOwn: boolean;
   status?: string;
@@ -62,9 +63,15 @@ interface Conversation {
   }>;
 }
 
+type MediaType = "image" | "video" | "document" | "audio";
+type AttachmentKind = "media-url" | "media-file";
+
 interface ChatAreaProps {
   conversation: Conversation;
   messages: Message[];
+  hasMoreMessages?: boolean;
+  isLoadingOlder?: boolean;
+  onLoadOlder?: () => void;
   onToggleProfile: () => void;
   onSendMessage: (text: string) => Promise<void>;
   canSend: boolean;
@@ -79,19 +86,14 @@ interface ChatAreaProps {
     color?: string | null;
   }>;
   onUpdateLabels: (labelIds: string[]) => Promise<void>;
-  onSendMedia: (payload: { url: string; caption?: string }) => Promise<void>;
-  onSendLocation: (payload: { latitude: number; longitude: number; address?: string }) => Promise<void>;
-  onSendContact: (payload: { name: string; phone: string }) => Promise<void>;
-  onSendReaction: (payload: { emoji: string; messageId: string }) => Promise<void>;
-  onSendButtons: (payload: { text: string; buttons: string[] }) => Promise<void>;
-  onSendList: (payload: { title: string; description?: string; sections: Array<{ title: string; rows: string[] }> }) => Promise<void>;
-  onSendPoll: (payload: { name: string; options: string[] }) => Promise<void>;
-  onSendMediaFile: (file: File, caption?: string) => Promise<void>;
+  onSendMedia: (payload: { url: string; caption?: string; mediatype: MediaType }) => Promise<void>;
+  onSendMediaFile: (file: File, caption?: string, mediatype?: MediaType) => Promise<void>;
   onShowQr: () => Promise<void>;
   onEditMessage: (messageId: string, keyId: string, text: string) => Promise<void>;
   isAiEnabled: boolean;
   aiTogglePending?: boolean;
   onToggleAi: (enabled: boolean) => Promise<void> | void;
+  showBotToggle?: boolean;
 }
 
 const sourceIcon = (src?: string) => {
@@ -163,20 +165,31 @@ const labelColorClass = (color?: string | null) => {
   }
 };
 
+const detectMediaType = (file?: File | null): MediaType => {
+  if (!file) return "document";
+  const mime = (file.type || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  const name = (file.name || "").toLowerCase();
+  const ext = name.includes(".") ? name.split(".").pop() || "" : "";
+  if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "heic"].includes(ext)) return "image";
+  if (["mp4", "mov", "mkv", "avi", "webm", "3gp", "m4v"].includes(ext)) return "video";
+  if (["mp3", "ogg", "oga", "opus", "m4a", "wav", "aac"].includes(ext)) return "audio";
+  return "document";
+};
+
 export function ChatArea({
   conversation,
   messages,
+  hasMoreMessages = false,
+  isLoadingOlder = false,
+  onLoadOlder,
   onToggleProfile,
   onSendMessage,
   availableLabels,
   onUpdateLabels,
   onSendMedia,
-  onSendLocation,
-  onSendContact,
-  onSendReaction,
-  onSendButtons,
-  onSendList,
-  onSendPoll,
   onSendMediaFile,
   onShowQr,
   canSend,
@@ -185,31 +198,21 @@ export function ChatArea({
   onEditMessage,
   isAiEnabled,
   aiTogglePending,
-  onToggleAi
+  onToggleAi,
+  showBotToggle = false
 }: ChatAreaProps) {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachmentSending, setAttachmentSending] = useState(false);
   const [labelSaving, setLabelSaving] = useState(false);
   const [selectedLabels, setSelectedLabels] = useState<string[]>(
     conversation.labels?.map((l) => l.labelId) || []
   );
   const endRef = useRef<HTMLDivElement | null>(null);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [attachmentKind, setAttachmentKind] = useState<AttachmentKind>("media-url");
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaCaption, setMediaCaption] = useState("");
-  const [locationOpen, setLocationOpen] = useState(false);
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
-  const [address, setAddress] = useState("");
-  const [contactOpen, setContactOpen] = useState(false);
-  const [contactName, setContactName] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [reactionOpen, setReactionOpen] = useState(false);
-  const [reactionEmoji, setReactionEmoji] = useState("👍");
-  const [reactionMessageId, setReactionMessageId] = useState("");
-  const [buttonsOpen, setButtonsOpen] = useState(false);
-  const [buttonsText, setButtonsText] = useState("");
-  const [buttonsList, setButtonsList] = useState<string>("Да;Нет;Позже");
   const [imagePreview, setImagePreview] = useState<{
     url: string;
     caption?: string;
@@ -221,13 +224,6 @@ export function ChatArea({
     name?: string;
     mimetype?: string;
   } | null>(null);
-  const [listOpen, setListOpen] = useState(false);
-  const [listTitle, setListTitle] = useState("");
-  const [listDescription, setListDescription] = useState("");
-  const [listItems, setListItems] = useState<string>("Пункт 1;Пункт 2;Пункт 3");
-  const [pollOpen, setPollOpen] = useState(false);
-  const [pollTitle, setPollTitle] = useState("");
-  const [pollOptions, setPollOptions] = useState<string>("Вариант 1;Вариант 2");
   const { toast } = useToast();
   const aiLocked = isAiEnabled;
   const triggerDownload = (url?: string, name?: string) => {
@@ -249,7 +245,6 @@ export function ChatArea({
     const val = bytes / Math.pow(1024, idx);
     return `${val.toFixed(val >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
   };
-  const [fileOpen, setFileOpen] = useState(false);
   const [fileCaption, setFileCaption] = useState("");
   const [fileSelected, setFileSelected] = useState<File | null>(null);
   const [openLabelPopover, setOpenLabelPopover] = useState(false);
@@ -258,16 +253,46 @@ export function ChatArea({
   const [editMessageId, setEditMessageId] = useState<string | null>(null);
   const [editKeyId, setEditKeyId] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const pendingPrependRef = useRef<number | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   useEffect(() => {
-    requestAnimationFrame(() => {
-      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    });
-  }, [messages, conversation.id]);
+    setIsAtBottom(true);
+  }, [conversation.id]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (pendingPrependRef.current !== null && !isLoadingOlder) {
+      const previousHeight = pendingPrependRef.current;
+      const delta = container.scrollHeight - previousHeight;
+      container.scrollTop = delta + container.scrollTop;
+      pendingPrependRef.current = null;
+      return;
+    }
+    if (isAtBottom && !isLoadingOlder) {
+      requestAnimationFrame(() => {
+        endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      });
+    }
+  }, [messages, isAtBottom, isLoadingOlder]);
 
   useEffect(() => {
     setSelectedLabels(conversation.labels?.map((l) => l.labelId) || []);
   }, [conversation.id]);
+
+  const handleScroll = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const atBottom = scrollHeight - (scrollTop + clientHeight) < 24;
+    setIsAtBottom(atBottom);
+    if (scrollTop <= 80 && onLoadOlder && hasMoreMessages && !isLoadingOlder) {
+      pendingPrependRef.current = scrollHeight;
+      onLoadOlder();
+    }
+  };
 
   useEffect(() => {
     if (!editOpen) {
@@ -287,7 +312,7 @@ export function ChatArea({
     onUpdateLabels(selectedLabels)
       .catch((err) => {
         console.error("Label update error", err);
-        alert("Не удалось обновить теги");
+        notify("Не удалось обновить теги");
       })
       .finally(() => {
         setLabelSaving(false);
@@ -300,6 +325,11 @@ export function ChatArea({
       title,
       description
     });
+
+  const openAttachment = (kind: AttachmentKind) => {
+    setAttachmentKind(kind);
+    setAttachmentOpen(true);
+  };
 
   const isSendBlocked = () => {
     if (aiLocked) {
@@ -315,149 +345,51 @@ export function ChatArea({
 
   async function submitMedia() {
     if (isSendBlocked()) return;
+    if (attachmentSending) return;
     if (!mediaUrl) return;
     try {
-      await onSendMedia({ url: mediaUrl, caption: mediaCaption });
-      notify("Медиа отправлено");
+      setAttachmentSending(true);
+      await onSendMedia({
+        url: mediaUrl,
+        caption: mediaCaption || undefined,
+        mediatype: "document"
+      });
+      notify("Документ отправлен");
       setMediaUrl("");
       setMediaCaption("");
-      setMediaOpen(false);
+      setAttachmentOpen(false);
     } catch (err) {
       console.error(err);
-      notify("Не удалось отправить медиа");
-    }
-  }
-
-  async function submitLocation() {
-    if (isSendBlocked()) return;
-    const lat = parseFloat(latitude);
-    const lng = parseFloat(longitude);
-    if (Number.isNaN(lat) || Number.isNaN(lng)) {
-      notify("Укажите координаты");
-      return;
-    }
-    try {
-      await onSendLocation({ latitude: lat, longitude: lng, address: address || undefined });
-      notify("Локация отправлена");
-      setLocationOpen(false);
-    } catch (err) {
-      console.error(err);
-      notify("Не удалось отправить локацию");
-    }
-  }
-
-  async function submitContact() {
-    if (isSendBlocked()) return;
-    if (!contactName || !contactPhone) {
-      notify("Заполните имя и телефон");
-      return;
-    }
-    try {
-      await onSendContact({ name: contactName, phone: contactPhone });
-      notify("Контакт отправлен");
-      setContactOpen(false);
-    } catch (err) {
-      console.error(err);
-      notify("Не удалось отправить контакт");
-    }
-  }
-
-  async function submitReaction() {
-    if (isSendBlocked()) return;
-    const target = reactionMessageId || messages[messages.length - 1]?.id;
-    if (!target) {
-      notify("Нет сообщения для реакции");
-      return;
-    }
-    try {
-      await onSendReaction({ emoji: reactionEmoji || "👍", messageId: target });
-      notify("Реакция отправлена");
-      setReactionOpen(false);
-    } catch (err) {
-      console.error(err);
-      notify("Не удалось отправить реакцию");
-    }
-  }
-
-  async function submitButtons() {
-    if (isSendBlocked()) return;
-    const buttons = buttonsList
-      .split(";")
-      .map((b) => b.trim())
-      .filter(Boolean);
-    if (!buttonsText || buttons.length === 0) {
-      notify("Введите текст и кнопки");
-      return;
-    }
-    try {
-      await onSendButtons({ text: buttonsText, buttons });
-      notify("Кнопки отправлены");
-      setButtonsOpen(false);
-    } catch (err) {
-      console.error(err);
-      notify("Не удалось отправить кнопки");
-    }
-  }
-
-  async function submitList() {
-    if (isSendBlocked()) return;
-    const rows = listItems
-      .split(";")
-      .map((r) => r.trim())
-      .filter(Boolean);
-    if (!listTitle || rows.length === 0) {
-      notify("Введите заголовок и пункты");
-      return;
-    }
-    try {
-      await onSendList({
-        title: listTitle,
-        description: listDescription,
-        sections: [{ title: listTitle, rows }]
-      });
-      notify("Список отправлен");
-      setListOpen(false);
-    } catch (err) {
-      console.error(err);
-      notify("Не удалось отправить список");
-    }
-  }
-
-  async function submitPoll() {
-    if (isSendBlocked()) return;
-    const options = pollOptions
-      .split(";")
-      .map((o) => o.trim())
-      .filter(Boolean);
-    if (!pollTitle || options.length < 2) {
-      notify("Заголовок и минимум 2 варианта");
-      return;
-    }
-    try {
-      await onSendPoll({ name: pollTitle, options });
-      notify("Опрос отправлен");
-      setPollOpen(false);
-    } catch (err) {
-      console.error(err);
-      notify("Не удалось отправить опрос");
+      notify("Не удалось отправить документ");
+    } finally {
+      setAttachmentSending(false);
     }
   }
 
   async function submitFile() {
     if (isSendBlocked()) return;
+    if (attachmentSending) return;
     if (!fileSelected) {
       notify("Выберите файл");
       return;
     }
+    const mediaType = detectMediaType(fileSelected);
+    if (mediaType !== "image" && mediaType !== "document") {
+      notify("Можно отправить только изображение или документ");
+      return;
+    }
     try {
-      await onSendMediaFile(fileSelected, fileCaption || undefined);
-      notify("Файл отправлен");
+      setAttachmentSending(true);
+      await onSendMediaFile(fileSelected, fileCaption || undefined, mediaType);
+      notify(mediaType === "image" ? "Изображение отправлено" : "Документ отправлен");
       setFileSelected(null);
       setFileCaption("");
-      setFileOpen(false);
+      setAttachmentOpen(false);
     } catch (err) {
       console.error(err);
       notify("Не удалось отправить файл");
+    } finally {
+      setAttachmentSending(false);
     }
   }
 
@@ -469,7 +401,7 @@ export function ChatArea({
       onSendMessage(newMessage.trim())
         .catch((err) => {
           console.error("Send error", err);
-          alert("Не удалось отправить сообщение");
+          notify("Не удалось отправить сообщение");
         })
         .finally(() => {
           setSending(false);
@@ -598,13 +530,19 @@ export function ChatArea({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 space-y-4 overflow-y-auto p-4">
+        {isLoadingOlder ? (
+          <div className="text-center text-xs text-gray-500">Загрузка старых сообщений...</div>
+        ) : null}
         {messages.length === 0 ? (
           <div className="text-sm text-gray-500">Сообщений пока нет.</div>
         ) : (
-          messages.map((message) => (
+          messages.map((message, index) => (
             <div
-              key={message.id}
+              key={`${message.id || message.keyId || "msg"}-${message.timestampMs || index}`}
               className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}>
               <div
                 className={`group relative max-w-xs rounded-2xl px-4 py-2 lg:max-w-md ${
@@ -909,51 +847,49 @@ export function ChatArea({
       </Dialog>
 
       {/* Message Input */}
-      <div className="border-t border-gray-200 p-4">
-        <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+      <div className="border-t bg-white px-2.5 pt-2.5 pb-1.5 ">
+        <form
+          onSubmit={handleSendMessage}
+          className="flex items-center  bg-transparent "
+        >
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={!canSend || sending || aiLocked}>
-                <Paperclip className="h-4 w-4" />
+              <Button variant="ghost" size="sm" disabled={!canSend || sending || aiLocked || attachmentSending}>
+                <Paperclip className="h-4 w-8" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => setMediaOpen(true)}>Медиа (URL)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setFileOpen(true)}>Медиа (файл)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setLocationOpen(true)}>Локация</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setContactOpen(true)}>Контакт</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setReactionOpen(true)}>Реакция</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setButtonsOpen(true)}>Кнопки</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setListOpen(true)}>Список</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setPollOpen(true)}>Опрос</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openAttachment("media-url")}>Документ по URL</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openAttachment("media-file")}>Файл (картинка/документ)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <div
-            className={`flex items-center gap-2 rounded-md border px-2 py-1 text-xs transition ${
-              aiLocked ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"
-            }`}>
-            <Sparkles className="h-3 w-3 text-amber-500" />
-            <span className="text-[11px] font-semibold text-gray-800">ИИ</span>
-            <Switch
-              checked={isAiEnabled}
-              disabled={aiTogglePending}
-              onCheckedChange={(checked) => onToggleAi(checked)}
+          {showBotToggle ? (
+            <div
+              className={`flex items-center gap-2 rounded-full px-2 py-1 text-xs transition ${
+                aiLocked ? "bg-amber-50" : "bg-gray-50"
+              }`}>
+              <LuBot className="h-3 w-3 text-black" />
+              <Switch
+                checked={isAiEnabled}
+                disabled={aiTogglePending}
+                onCheckedChange={(checked) => onToggleAi(checked)}
+              />
+            </div>
+          ) : null}
+            <Input
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder={
+                aiLocked ? "ИИ отвечает за чат — отключите тумблер, чтобы писать" : "Написать сообщение..."
+              }
+              className="flex-1 rounded-full border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              disabled={sending || !canSend || aiLocked}
             />
-          </div>
-          <Input
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={
-              aiLocked ? "ИИ отвечает за чат — отключите тумблер, чтобы писать" : "Написать сообщение..."
-            }
-            className="flex-1"
-            disabled={sending || !canSend || aiLocked}
-          />
           <Button
             type="submit"
-            className="bg-blue-500 text-white hover:bg-blue-600"
+            className="rounded-xl bg-blue-500 text-white hover:bg-blue-600"
             disabled={sending || !newMessage.trim() || !canSend || aiLocked}>
-            <Send className="h-4 w-4" />
+            <Send className="h-4 w-8" />
           </Button>
         </form>
       </div>
@@ -978,198 +914,99 @@ export function ChatArea({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={mediaOpen} onOpenChange={setMediaOpen}>
+      <Dialog open={attachmentOpen} onOpenChange={setAttachmentOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Отправить медиа по URL</DialogTitle>
-            <DialogDescription>Укажите прямую ссылку и, при необходимости, подпись.</DialogDescription>
+            <DialogTitle>
+              {{
+                "media-url": "Отправить документ по URL",
+                "media-file": "Отправить файл"
+              }[attachmentKind]}
+            </DialogTitle>
+            <DialogDescription>
+              {{
+                "media-url": "Укажите прямую ссылку на документ.",
+                "media-file": "Будет отправлено изображение (imageMessage) или документ."
+              }[attachmentKind] || undefined}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>URL</Label>
-              <Input value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} placeholder="https://..." />
-            </div>
-            <div className="space-y-1">
-              <Label>Подпись</Label>
-              <Input value={mediaCaption} onChange={(e) => setMediaCaption(e.target.value)} placeholder="Комментарий" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitMedia} disabled={!mediaUrl.trim()}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={locationOpen} onOpenChange={setLocationOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить локацию</DialogTitle>
-            <DialogDescription>Координаты в формате десятичных градусов.</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Широта</Label>
-              <Input value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="43.2389" />
+          {attachmentKind === "media-url" ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Ссылка на документ</Label>
+                <Input
+                  value={mediaUrl}
+                  onChange={(e) => setMediaUrl(e.target.value)}
+                  placeholder="https://..."
+                  disabled={attachmentSending}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Подпись</Label>
+                <Input
+                  value={mediaCaption}
+                  onChange={(e) => setMediaCaption(e.target.value)}
+                  placeholder="Комментарий"
+                  disabled={attachmentSending}
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>Долгота</Label>
-              <Input value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="76.8897" />
-            </div>
-            <div className="col-span-2 space-y-1">
-              <Label>Адрес (опционально)</Label>
-              <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Алматы, Казахстан" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitLocation}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ) : null}
 
-      <Dialog open={contactOpen} onOpenChange={setContactOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить контакт</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Имя</Label>
-              <Input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Имя" />
+          {attachmentKind === "media-file" ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Файл</Label>
+                <Input
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.csv"
+                  disabled={attachmentSending}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setFileSelected(f);
+                  }}
+                />
+                {fileSelected && <p className="text-xs text-muted-foreground">{fileSelected.name}</p>}
+              </div>
+              {fileSelected ? (
+                <div className="text-xs text-muted-foreground">
+                  Тип: {detectMediaType(fileSelected) === "image" ? "изображение" : "документ"}.
+                </div>
+              ) : null}
+              <div className="space-y-1">
+                <Label>Подпись</Label>
+                <Input value={fileCaption} onChange={(e) => setFileCaption(e.target.value)} disabled={attachmentSending} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>Телефон</Label>
-              <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="7707..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitContact}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ) : null}
 
-      <Dialog open={reactionOpen} onOpenChange={setReactionOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить реакцию</DialogTitle>
-            <DialogDescription>По умолчанию последнему сообщению.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Эмодзи</Label>
-              <Input value={reactionEmoji} onChange={(e) => setReactionEmoji(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>ID сообщения (опционально)</Label>
-              <Input
-                value={reactionMessageId}
-                onChange={(e) => setReactionMessageId(e.target.value)}
-                placeholder="Если не указать, возьмём последнее"
-              />
-            </div>
-          </div>
           <DialogFooter>
-            <Button onClick={submitReaction}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={buttonsOpen} onOpenChange={setButtonsOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить кнопки</DialogTitle>
-            <DialogDescription>Кнопки через “;”</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Текст сообщения</Label>
-              <Input value={buttonsText} onChange={(e) => setButtonsText(e.target.value)} placeholder="Выберите опцию" />
-            </div>
-            <div className="space-y-1">
-              <Label>Кнопки</Label>
-              <Input value={buttonsList} onChange={(e) => setButtonsList(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitButtons}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={listOpen} onOpenChange={setListOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить список</DialogTitle>
-            <DialogDescription>Пункты через “;”</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Заголовок</Label>
-              <Input value={listTitle} onChange={(e) => setListTitle(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Описание</Label>
-              <Input value={listDescription} onChange={(e) => setListDescription(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Пункты</Label>
-              <Input value={listItems} onChange={(e) => setListItems(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitList}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={pollOpen} onOpenChange={setPollOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить опрос</DialogTitle>
-            <DialogDescription>Варианты через “;”</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Тема</Label>
-              <Input value={pollTitle} onChange={(e) => setPollTitle(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Варианты</Label>
-              <Input value={pollOptions} onChange={(e) => setPollOptions(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitPoll}>Отправить</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={fileOpen} onOpenChange={setFileOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Отправить файл</DialogTitle>
-            <DialogDescription>Файл будет отправлен как документ/медиа.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label>Файл</Label>
-              <Input
-                type="file"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setFileSelected(f);
-                }}
-              />
-              {fileSelected && <p className="text-xs text-muted-foreground">{fileSelected.name}</p>}
-            </div>
-            <div className="space-y-1">
-              <Label>Подпись</Label>
-              <Input value={fileCaption} onChange={(e) => setFileCaption(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={submitFile} disabled={!fileSelected}>
-              Отправить
+            <Button
+              onClick={() => {
+                switch (attachmentKind) {
+                  case "media-url":
+                    return submitMedia();
+                  case "media-file":
+                    return submitFile();
+                  default:
+                    return undefined;
+                }
+              }}
+              disabled={
+                attachmentSending ||
+                (attachmentKind === "media-url" && !mediaUrl.trim()) ||
+                (attachmentKind === "media-file" && !fileSelected)
+              }
+            >
+              {attachmentSending ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Отправка...
+                </span>
+              ) : (
+                "Отправить"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,28 +1,38 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase-client";
+import Link from "next/link";
+import { getEvoSocket } from "@/lib/evo-socket";
+import {
+  fetchChats,
+  fetchContacts,
+  fetchIntegrationSession,
+  fetchInstances,
+  fetchLabels,
+  fetchMessages,
+  updateChatUnread,
+  updateMessagesStatus
+} from "@/lib/db-api";
 import { ConversationList } from "@/app/(dashboard)/chats/component/conversation-list";
 import { ChatArea } from "@/app/(dashboard)/chats/component/chat-area";
 import { UserProfile } from "@/app/(dashboard)/chats/component/user-profile";
 import {
+  changeN8nStatus,
+  emitN8nLastMessage,
+  fetchN8nSessions,
   sendTextMessage,
   resolveInstance,
   handleLabel,
   markChatAsRead,
   fetchConnectionState,
   sendMedia,
-  sendLocation,
-  sendContact,
-  sendReaction,
-  sendButtons,
-  sendList,
-  sendPoll,
   sendMediaFile,
   connectInstance,
   updateMessage,
-  readPreferredInstance
+  readPreferredInstance,
+  setPreferredInstance,
+  getApiKey
 } from "@/lib/evo-api";
 import {
   Dialog,
@@ -33,6 +43,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTimeWithTz } from "@/lib/timezone";
 
@@ -77,10 +88,13 @@ type MessageRow = {
   chatId?: string | null;
   labels?: string | null;
   instanceId?: string | null;
+  sessionId?: string | null;
 };
 
 type MessageUpdateRow = {
   messageId?: string;
+  keyId?: string | null;
+  remoteJid?: string | null;
   status?: string | null;
   instanceId?: string | null;
 };
@@ -94,7 +108,7 @@ type ChatRow = {
   createdAt?: string | null;
   instanceId: string;
   labels?: string | null;
-  is_ai?: boolean | null;
+  // is_ai column отсутствует в текущей схеме БД
 };
 
 type Conversation = {
@@ -126,6 +140,24 @@ type Message = {
   status?: string;
   keyId?: string;
   attachments?: Attachment[];
+  sessionId?: string | null;
+};
+
+type IntegrationSessionRow = {
+  id: string;
+  sessionId: string;
+  remoteJid: string;
+  status: "opened" | "paused" | "closed";
+  botId?: string | null;
+  type?: string | null;
+};
+
+type N8nSessionRow = {
+  id: string;
+  remoteJid: string;
+  status: "opened" | "paused" | "closed";
+  botId?: string | null;
+  type?: string | null;
 };
 
 type Attachment = {
@@ -146,6 +178,15 @@ type Contact = {
 type InstanceStatus = {
   id: string;
   connectionStatus: string;
+  instanceId?: string | null;
+  instanceName?: string | null;
+  name?: string | null;
+};
+
+type QrCodePayload = {
+  instance?: string;
+  data?: { qrcode?: { instance?: string; base64?: string | null } | null } | null;
+  qrcode?: { instance?: string; base64?: string | null } | null;
 };
 
 type LabelRow = {
@@ -159,15 +200,6 @@ type LabelTag = {
   labelId: string;
   name: string;
   color?: string | null;
-};
-
-type MediaRow = {
-  id: string;
-  fileName?: string | null;
-  type?: string | null;
-  mimetype?: string | null;
-  messageId?: string | null;
-  fileUrl?: string | null;
 };
 
 const fallbackAvatar = "/logo.png";
@@ -215,9 +247,9 @@ function extractAttachments(
     attachments.push({
       type: "image",
       url:
+        normalizeUrl(mediaUrl) ||
         normalizeUrl(message.imageMessage.url) ||
-        normalizeUrl(message.imageMessage.directPath) ||
-        normalizeUrl(mediaUrl),
+        normalizeUrl(message.imageMessage.directPath),
       caption: message.imageMessage.caption,
       name: message.imageMessage.fileName,
       mimetype: message.imageMessage.mimetype,
@@ -229,9 +261,9 @@ function extractAttachments(
     attachments.push({
       type: "video",
       url:
+        normalizeUrl(mediaUrl) ||
         normalizeUrl(message.videoMessage.url) ||
-        normalizeUrl(message.videoMessage.directPath) ||
-        normalizeUrl(mediaUrl),
+        normalizeUrl(message.videoMessage.directPath),
       caption: message.videoMessage.caption,
       name: message.videoMessage.fileName,
       mimetype: message.videoMessage.mimetype,
@@ -243,9 +275,9 @@ function extractAttachments(
     attachments.push({
       type: "document",
       url:
+        normalizeUrl(mediaUrl, opts?.allowMmgForDocuments) ||
         normalizeUrl(message.documentMessage.url, opts?.allowMmgForDocuments) ||
-        normalizeUrl(message.documentMessage.directPath, opts?.allowMmgForDocuments) ||
-        normalizeUrl(mediaUrl, opts?.allowMmgForDocuments),
+        normalizeUrl(message.documentMessage.directPath, opts?.allowMmgForDocuments),
       name: message.documentMessage.fileName,
       mimetype: message.documentMessage.mimetype,
       sizeBytes: parseFileLength(message.documentMessage.fileLength)
@@ -256,9 +288,9 @@ function extractAttachments(
     attachments.push({
       type: "audio",
       url:
+        normalizeUrl(mediaUrl) ||
         normalizeUrl(message.audioMessage.url) ||
-        normalizeUrl(message.audioMessage.directPath) ||
-        normalizeUrl(mediaUrl),
+        normalizeUrl(message.audioMessage.directPath),
       name: message.audioMessage.fileName,
       mimetype: message.audioMessage.mimetype,
       sizeBytes: parseFileLength(message.audioMessage.fileLength)
@@ -282,22 +314,32 @@ function sortConversationsByTime(list: Conversation[]) {
 const stripWhatsappSuffix = (value?: string | null) =>
   (value || "").replace(/@s\.whatsapp\.net$/, "");
 
-function mapMediaAttachment(media?: MediaRow): Attachment | null {
-  if (!media) return null;
-  const type = (media.type || "").toLowerCase();
-  const normalizedType =
-    type === "image" || type === "video" || type === "document" || type === "audio"
-      ? type
-      : "document";
-  if (!media.fileUrl) return null;
+const resolveRemoteJid = (key?: MessageKey | null): string | null => {
+  if (!key) return null;
+  const primary = key.remoteJid || null;
+  const alt = key.remoteJidAlt || null;
+  if (primary && !primary.includes("@lid")) return primary;
+  if (alt && !alt.includes("@lid")) return alt;
+  return primary || alt || null;
+};
 
-  return {
-    type: normalizedType,
-    url: media.fileUrl,
-    name: media.fileName || normalizedType,
-    mimetype: media.mimetype || undefined
-  };
-}
+const isUnreadStatus = (status?: string | null) =>
+  (status || "").toUpperCase() === "DELIVERY_ACK";
+
+const statusRank = (status?: string | null) => {
+  switch ((status || "").toUpperCase()) {
+    case "PENDING":
+      return 0;
+    case "SERVER_ACK":
+      return 1;
+    case "DELIVERY_ACK":
+      return 2;
+    case "READ":
+      return 3;
+    default:
+      return -1;
+  }
+};
 
 function parseLabels(raw?: string | string[] | null): string[] {
   if (!raw) return [];
@@ -317,12 +359,22 @@ function parseLabels(raw?: string | string[] | null): string[] {
   return [];
 }
 
+function findLatestSessionId(rows: MessageRow[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const sessionId = rows[i]?.sessionId;
+    if (sessionId) return sessionId;
+  }
+  return null;
+}
+
 const CHAT_PAGE_SIZE = 20;
 
 export default function ChatApp() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [loadingChats, setLoadingChats] = useState(false);
   const [loadingMoreChats, setLoadingMoreChats] = useState(false);
@@ -340,8 +392,76 @@ export default function ChatApp() {
   const availableLabels = useMemo(() => Object.values(labelsById), [labelsById]);
   const searchParams = useSearchParams();
   const [qrData, setQrData] = useState<string | null>(null);
+  const [qrInstance, setQrInstance] = useState<string | null>(null);
   const { toast } = useToast();
-  const [aiUpdating, setAiUpdating] = useState(false);
+  const [apiKey, setApiKeyState] = useState<string | null>(() => getApiKey());
+  const [botMeta, setBotMeta] = useState<IntegrationSessionRow | null>(null);
+  const [botSession, setBotSession] = useState<N8nSessionRow | null>(null);
+  const [botSessionId, setBotSessionId] = useState<string | null>(null);
+  const [botTogglePending, setBotTogglePending] = useState(false);
+  const selectedConversationRef = useRef<Conversation | null>(null);
+  const instanceNameRef = useRef<string | null>(null);
+  const preferredInstanceIdRef = useRef<string | null>(null);
+  const qrInstanceRef = useRef<string | null>(null);
+  const debouncedSearchRef = useRef<string>("");
+  const loadChatsRef = useRef(loadChats);
+  const instanceNameToIdRef = useRef<Record<string, string>>({});
+  const contactByRemoteRef = useRef<Record<string, Contact>>({});
+  const instanceStatusesRef = useRef<Record<string, string>>({});
+  const labelsByIdRef = useRef<Record<string, LabelTag>>({});
+  const skipUnreadIncrementRef = useRef<Record<string, boolean>>({});
+  const messagesRef = useRef<Message[]>([]);
+
+  const hasApiKey = Boolean(apiKey);
+  const hasInstances = Object.keys(instanceNames).length > 0;
+  const showAlertType =
+    !hasApiKey
+      ? "apikey"
+      : !loadingChats && !loadingMoreChats && !hasInstances
+        ? "instances"
+        : !loadingChats && !loadingMoreChats && hasInstances && !instanceName && !preferredInstanceId
+          ? "selection"
+          : null;
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    instanceNameRef.current = instanceName;
+  }, [instanceName]);
+
+  useEffect(() => {
+    preferredInstanceIdRef.current = preferredInstanceId;
+  }, [preferredInstanceId]);
+
+  useEffect(() => {
+    qrInstanceRef.current = qrInstance;
+  }, [qrInstance]);
+
+  useEffect(() => {
+    debouncedSearchRef.current = debouncedSearch;
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    contactByRemoteRef.current = contactByRemote;
+  }, [contactByRemote]);
+
+  useEffect(() => {
+    instanceStatusesRef.current = instanceStatuses;
+  }, [instanceStatuses]);
+
+  useEffect(() => {
+    labelsByIdRef.current = labelsById;
+  }, [labelsById]);
+
+  useEffect(() => {
+    loadChatsRef.current = loadChats;
+  }, [loadChats]);
 
   useEffect(() => {
     const saved = readPreferredInstance();
@@ -351,14 +471,40 @@ export default function ChatApp() {
   }, []);
 
   useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<string | null>)?.detail ?? null;
+      const nextKey = detail ?? getApiKey();
+      setApiKeyState(nextKey);
+      setInstanceName(null);
+      setPreferredInstanceId(null);
+      setSelectedConversation(null);
+      setMessages([]);
+      setBotMeta(null);
+      setBotSession(null);
+      setBotSessionId(null);
+      setQrData(null);
+      setQrInstance(null);
+      if (!nextKey) {
+        return;
+      }
+      loadChatsRef.current(null, null, { search: debouncedSearchRef.current });
+    };
+    window.addEventListener("crafty:apikey-changed", handler as EventListener);
+    return () => {
+      window.removeEventListener("crafty:apikey-changed", handler as EventListener);
+    };
+  }, [toast]);
+
+  useEffect(() => {
     if (instanceName) return;
+    if (!apiKey) return;
     resolveInstance()
       .then((name) => setInstanceName((prev) => prev || name))
       .catch((err) => {
         console.error("Не удалось получить instanceName:", err);
         setInstanceName(null);
       });
-  }, [instanceName]);
+  }, [apiKey, instanceName]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -418,55 +564,48 @@ export default function ChatApp() {
   async function loadChats(
     preferredInstanceName?: string | null,
     preferredInstanceId?: string | null,
-    opts?: { page?: number; append?: boolean; search?: string }
+    opts?: { page?: number; append?: boolean; search?: string; preserve?: boolean }
   ) {
     const page = opts?.page ?? 0;
     const append = opts?.append ?? false;
+    const preserve = opts?.preserve ?? false;
     const searchTerm = (opts?.search || "").trim();
     const from = page * CHAT_PAGE_SIZE;
     const to = from + CHAT_PAGE_SIZE - 1;
     const setLoadingFn = append ? setLoadingMoreChats : setLoadingChats;
     setChatPage(page);
-    if (!append && page === 0) {
+    if (!append && page === 0 && !preserve) {
       setConversations([]);
       setHasMoreChats(true);
     }
     setLoadingFn(true);
     try {
-      let chatQuery = supabase
-        .from("Chat")
-        .select("id,remoteJid,name,unreadMessages,updatedAt,createdAt,instanceId,labels,is_ai")
-        .order("updatedAt", { ascending: false })
-        .range(from, to);
-      if (preferredInstanceId) {
-        chatQuery = chatQuery.eq("instanceId", preferredInstanceId);
+      const currentKey = apiKey || getApiKey();
+      if (!currentKey) {
+        return;
       }
-      if (searchTerm) {
-        const like = `%${searchTerm}%`;
-        chatQuery = chatQuery.or(`name.ilike.${like},remoteJid.ilike.${like}`);
-      }
-
-      let contactQuery = supabase
-        .from("Contact")
-        .select("remoteJid,pushName,profilePicUrl,instanceId");
-      if (preferredInstanceId) {
-        contactQuery = contactQuery.eq("instanceId", preferredInstanceId);
-      }
-
-      const [
-        { data: chatRows, error: chatError },
-        { data: contactRows },
-        { data: instances },
-        { data: labelRows }
-      ] = await Promise.all([
-        chatQuery,
-        contactQuery,
-        supabase.from("Instance").select("id,name,connectionStatus"),
-        supabase.from("Label").select("labelId,name,color,instanceId")
-      ]);
-
-      if (chatError) {
-        console.error("Ошибка загрузки чатов:", chatError);
+      let chatRows: ChatRow[] = [];
+      let contactRows: Contact[] = [];
+      let instances: InstanceStatus[] = [];
+      let labelRows: LabelRow[] = [];
+      try {
+        const [chatsRes, contactsRes, instancesRes, labelsRes] = await Promise.all([
+          fetchChats({
+            instanceId: preferredInstanceId || undefined,
+            page,
+            pageSize: CHAT_PAGE_SIZE,
+            search: searchTerm || undefined
+          }),
+          fetchContacts(preferredInstanceId),
+          fetchInstances(),
+          fetchLabels(preferredInstanceId)
+        ]);
+        chatRows = (chatsRes.chats || []) as ChatRow[];
+        contactRows = (contactsRes.contacts || []) as Contact[];
+        instances = (instancesRes.instances || []) as InstanceStatus[];
+        labelRows = (labelsRes.labels || []) as LabelRow[];
+      } catch (err) {
+        console.error("Ошибка загрузки чатов:", err);
         return;
       }
 
@@ -475,23 +614,16 @@ export default function ChatApp() {
         .filter(Boolean);
       let recentMessages: MessageRow[] = [];
       if (remoteJids.length) {
-        let messageQuery = supabase
-          .from("Message")
-          .select("id,key,message,messageTimestamp,pushName,status,source,messageType,instanceId")
-          .order("messageTimestamp", { ascending: false })
-          .limit(Math.max(remoteJids.length * 3, CHAT_PAGE_SIZE));
-        if (preferredInstanceId) {
-          messageQuery = messageQuery.eq("instanceId", preferredInstanceId);
-        }
-        const remoteFilter = remoteJids.map((jid) => `key->>remoteJid.eq.${jid}`).join(",");
-        if (remoteFilter) {
-          messageQuery = messageQuery.or(remoteFilter);
-        }
-        const { data: messageRows, error: messageError } = await messageQuery;
-        if (messageError) {
-          console.error("Ошибка загрузки сообщений:", messageError);
-        } else {
+        try {
+          const { messages: messageRows } = await fetchMessages({
+            instanceId: preferredInstanceId || undefined,
+            remoteJids,
+            limit: Math.max(remoteJids.length * 3, CHAT_PAGE_SIZE),
+            order: "desc"
+          });
           recentMessages = (messageRows || []) as MessageRow[];
+        } catch (err) {
+          console.error("Ошибка загрузки сообщений:", err);
         }
       }
 
@@ -505,22 +637,46 @@ export default function ChatApp() {
       const instanceMap: Record<string, string> = {};
       const instanceNameMap: Record<string, string> = {};
       const instanceNameToId: Record<string, string> = {};
-      (instances || []).forEach((i: InstanceStatus & { name?: string }) => {
-        instanceMap[i.id] = i.connectionStatus;
-        if (i.name) {
-          instanceNameMap[i.id] = i.name;
-          instanceNameToId[i.name] = i.id;
+      (instances || []).forEach((i) => {
+        const id = i.id || i.instanceId || i.instanceName || i.name;
+        if (!id) return;
+        const name = i.instanceName || i.name || null;
+        instanceMap[id] = i.connectionStatus;
+        if (name) {
+          instanceNameMap[id] = name;
+          instanceNameToId[name] = id;
         }
       });
       setInstanceStatuses(instanceMap);
       setInstanceNames(instanceNameMap);
+      instanceNameToIdRef.current = instanceNameToId;
       const targetInstanceId =
         (preferredInstanceName && instanceNameToId[preferredInstanceName]) ||
         (instanceName && instanceNameToId[instanceName]) ||
         preferredInstanceId ||
         null;
-      if (!preferredInstanceId && targetInstanceId) {
-        setPreferredInstanceId(targetInstanceId);
+      const fallbackInstance =
+        instances.find((i) => i.connectionStatus === "open") ||
+        instances[0] ||
+        null;
+      const fallbackId =
+        (fallbackInstance as { id?: string; instanceId?: string; instanceName?: string; name?: string })?.id ||
+        (fallbackInstance as { instanceId?: string })?.instanceId ||
+        (fallbackInstance as { instanceName?: string })?.instanceName ||
+        (fallbackInstance as { name?: string })?.name ||
+        null;
+      const resolvedInstanceId = targetInstanceId || fallbackId;
+      if (resolvedInstanceId && resolvedInstanceId !== preferredInstanceId) {
+        const resolvedName =
+          instanceNameMap[resolvedInstanceId] ||
+          (fallbackInstance as { instanceName?: string; name?: string })?.instanceName ||
+          (fallbackInstance as { name?: string })?.name ||
+          null;
+        setPreferredInstanceId(resolvedInstanceId);
+        setPreferredInstance({ id: resolvedInstanceId, name: resolvedName });
+        if (!instanceName && resolvedName) {
+          setInstanceName(resolvedName);
+        }
       }
 
       const labelMap: Record<string, LabelTag> = {};
@@ -600,16 +756,19 @@ export default function ChatApp() {
           status,
           labels: parsedLabels,
           instanceId: chatRow.instanceId,
-          isAi: Boolean(chatRow.is_ai)
+          // is_ai column отсутствует в текущей схеме БД
+          isAi: false
         });
         return acc;
       }, []);
 
       const sorted = sortConversationsByTime(mapped);
-      setHasMoreChats(filteredChats.length === CHAT_PAGE_SIZE);
-      setChatPage(page);
+      if (!preserve) {
+        setHasMoreChats(filteredChats.length === CHAT_PAGE_SIZE);
+        setChatPage(page);
+      }
       setConversations((prev) => {
-        const merged = append ? [...prev, ...sorted] : sorted;
+        const merged = append || preserve ? [...prev, ...sorted] : sorted;
         const dedupedById: Record<string, Conversation> = {};
         merged.forEach((item) => {
           const key = item.id || item.remoteJid;
@@ -638,61 +797,574 @@ export default function ChatApp() {
     }
   }
 
+  const loadMessagesForConversation = useCallback(
+    async (conversation: Conversation | null) => {
+      if (!conversation) {
+        setMessages([]);
+        setBotMeta(null);
+        setBotSession(null);
+        setBotSessionId(null);
+        return;
+      }
+
+      const remoteJid = conversation.remoteJid;
+      const targetInstanceId = conversation.instanceId || preferredInstanceIdRef.current || null;
+      setBotMeta(null);
+      setBotSession(null);
+      setBotSessionId(null);
+
+      try {
+        const { messages: data } = await fetchMessages({
+          instanceId: targetInstanceId,
+          remoteJid,
+          limit: 50,
+          order: "desc"
+        });
+        const messageRows = (data || []) as MessageRow[];
+        setHasMoreMessages(messageRows.length >= 50);
+        setLoadingOlderMessages(false);
+        const mappedMessages: Message[] = messageRows.map((row) => mapMessageRow(row));
+        mappedMessages.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+        setMessages(mappedMessages);
+        setBotSessionId(findLatestSessionId(messageRows));
+      } catch (err) {
+        console.error("Ошибка загрузки сообщений:", err);
+        setMessages([]);
+        setBotSession(null);
+        setBotSessionId(null);
+      }
+    },
+    []
+  );
+
+  const loadOlderMessages = useCallback(async () => {
+    const conversation = selectedConversationRef.current;
+    if (!conversation || loadingOlderMessages || !hasMoreMessages) return;
+    const currentMessages = messagesRef.current;
+    const oldest = currentMessages[0];
+    if (!oldest?.timestampMs) return;
+    const remoteJid = conversation.remoteJid;
+    const targetInstanceId = conversation.instanceId || preferredInstanceIdRef.current || null;
+
+    setLoadingOlderMessages(true);
+    try {
+      const { messages: data } = await fetchMessages({
+        instanceId: targetInstanceId,
+        remoteJid,
+        limit: 50,
+        order: "desc",
+        before: Math.floor(oldest.timestampMs / 1000)
+      });
+      const messageRows = (data || []) as MessageRow[];
+      if (messageRows.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+      if (messageRows.length < 50) {
+        setHasMoreMessages(false);
+      }
+      const mappedMessages: Message[] = messageRows.map((row) => mapMessageRow(row));
+      mappedMessages.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+      setMessages((prev) => {
+        const merged = [...mappedMessages, ...prev];
+        const deduped: Record<string, Message> = {};
+        merged.forEach((msg) => {
+          const key = msg.keyId || msg.id;
+          if (!key) return;
+          if (!deduped[key] || (msg.timestampMs || 0) < (deduped[key].timestampMs || 0)) {
+            deduped[key] = msg;
+          }
+        });
+        return Object.values(deduped).sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+      });
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [hasMoreMessages, loadingOlderMessages]);
+
   useEffect(() => {
-    if (!selectedConversation) {
-      setMessages([]);
+    loadMessagesForConversation(selectedConversation);
+  }, [selectedConversation, loadMessagesForConversation]);
+
+  useEffect(() => {
+    if (!botSessionId) {
+      setBotMeta(null);
       return;
     }
 
-    const remoteJid = selectedConversation.remoteJid;
-    const targetInstanceId = selectedConversation.instanceId || preferredInstanceId || null;
-    let messageFetcher = supabase
-      .from("Message")
-      .select("id,key,message,messageTimestamp,pushName,status,source,messageType")
-      .order("messageTimestamp", { ascending: true })
-      .filter("key->>remoteJid", "eq", remoteJid)
-      .limit(50);
-    if (targetInstanceId) {
-      messageFetcher = messageFetcher.eq("instanceId", targetInstanceId);
-    }
-      messageFetcher.then(async ({ data, error }) => {
-        if (error) {
-          console.error("Ошибка загрузки сообщений:", error);
-          setMessages([]);
-          return;
+    let cancelled = false;
+    const loadSession = async () => {
+      try {
+        const { session } = await fetchIntegrationSession(botSessionId);
+        if (!cancelled) {
+          setBotMeta((session as IntegrationSessionRow | null) || null);
         }
+      } catch (err) {
+        console.warn("Ошибка загрузки сессии бота:", err);
+        if (!cancelled) setBotMeta(null);
+      }
+    };
 
-        const messageRows = (data || []) as MessageRow[];
-        const ids = messageRows.map((m) => m.id).filter(Boolean);
-        let mediaMap: Record<string, Message["attachments"]> = {};
-        if (ids.length) {
-          const { data: mediaRows, error: mediaError } = await supabase
-            .from("Media")
-            .select("id,fileName,type,mimetype,messageId")
-            .in("messageId", ids);
-          if (mediaError) {
-            console.error("Ошибка загрузки медиа:", mediaError);
+    loadSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [botSessionId]);
+
+  useEffect(() => {
+    const remoteJid = selectedConversation?.remoteJid;
+    const instId = selectedConversation?.instanceId;
+    const instName = instId ? instanceNames[instId] : null;
+    const botId = botMeta?.botId || null;
+    if (!remoteJid || !instName || !botId) {
+      setBotSession(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadN8nSession = async () => {
+      try {
+        const sessions = (await fetchN8nSessions(instName, botId, remoteJid)) as N8nSessionRow[];
+        const match = sessions.find((s) => s.remoteJid === remoteJid) || null;
+        if (!cancelled) setBotSession(match);
+      } catch (err) {
+        console.warn("Ошибка загрузки статуса n8n:", err);
+        if (!cancelled) setBotSession(null);
+      }
+    };
+
+    loadN8nSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [botMeta?.botId, instanceNames, selectedConversation?.instanceId, selectedConversation?.remoteJid]);
+
+  useEffect(() => {
+    const socket = getEvoSocket(apiKey);
+    if (!socket) return;
+    const handleConnectError = (err: unknown) => {
+      console.warn("socket connect_error", err);
+    };
+    const handleDisconnect = (reason: string) => {
+      console.warn("socket disconnected", reason);
+    };
+    socket.on("connect_error", handleConnectError);
+    socket.on("disconnect", handleDisconnect);
+
+    const updateConversationFromMessage = (data: MessageRow, message: Message) => {
+      const remote = resolveRemoteJid(data.key);
+      if (!remote) return;
+      const contacts = contactByRemoteRef.current;
+      const statuses = instanceStatusesRef.current;
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.remoteJid === remote);
+        const baseUnread = prev[idx]?.unreadCount || 0;
+        const shouldIncrement = !message.isOwn && isUnreadStatus(message.status);
+        let nextUnread = baseUnread;
+        if (shouldIncrement) {
+          if (skipUnreadIncrementRef.current[remote]) {
+            delete skipUnreadIncrementRef.current[remote];
           } else {
-            mediaMap = {};
-            (mediaRows || []).forEach((row) => {
-              const media = row as MediaRow;
-              if (!media.messageId) return;
-              const att = mapMediaAttachment(media);
-              if (!att) return;
-              mediaMap[media.messageId] = [...(mediaMap[media.messageId] || []), att];
-            });
+            nextUnread = baseUnread + 1;
           }
         }
+        const base: Conversation = {
+          id: prev[idx]?.id || remote,
+          remoteJid: remote,
+          name: stripWhatsappSuffix(
+            prev[idx]?.name || contacts[remote]?.pushName || data.pushName || remote
+          ),
+          avatar: contacts[remote]?.profilePicUrl || prev[idx]?.avatar || fallbackAvatar,
+          lastMessage: message.content,
+          timestamp: message.timestamp,
+          lastMessageTs: message.timestampMs,
+          lastSource: message.source,
+          unreadCount: nextUnread,
+          isActive: false,
+          status:
+            data.instanceId && statuses[data.instanceId]
+              ? statuses[data.instanceId] === "open"
+                ? "Онлайн"
+                : "Не в сети"
+              : prev[idx]?.status || "Неизвестно",
+          labels: prev[idx]?.labels || [],
+          instanceId: data.instanceId || prev[idx]?.instanceId,
+          isAi: prev[idx]?.isAi
+        };
 
-    const mappedMessages: Message[] = messageRows.map((row) =>
-      mapMessageRow(row, mediaMap[row.id])
-    );
-        mappedMessages.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
-
-        setMessages(mappedMessages);
-
+        if (idx === -1) {
+          return sortConversationsByTime([base, ...prev]);
+        }
+        const next = [...prev];
+        next.splice(idx, 1);
+        return sortConversationsByTime([base, ...next]);
       });
-  }, [selectedConversation, contactByRemote, instanceStatuses, preferredInstanceId]);
+    };
+
+    const handleConnect = () => {
+      loadChatsRef.current(
+        instanceNameRef.current || null,
+        preferredInstanceIdRef.current || null,
+        { search: debouncedSearchRef.current, preserve: true }
+      );
+      loadMessagesForConversation(selectedConversationRef.current);
+    };
+    socket.on("connect", handleConnect);
+
+    const handleQrUpdated = (payload: QrCodePayload) => {
+      const instance =
+        payload?.instance ||
+        payload?.data?.qrcode?.instance ||
+        payload?.qrcode?.instance;
+      if (!instance || instance !== qrInstanceRef.current) return;
+      const qrcode =
+        payload?.data?.qrcode?.base64 ||
+        payload?.qrcode?.base64 ||
+        null;
+      if (qrcode) {
+        setQrData(qrcode.startsWith("data:") ? qrcode : `data:image/png;base64,${qrcode}`);
+      }
+    };
+    socket.on("qrcode.updated", handleQrUpdated);
+
+    const handleMessagesUpsert = (payload: { data?: MessageRow }) => {
+      const data = payload?.data;
+      if (!data?.key) return;
+      const remote = resolveRemoteJid(data.key);
+      if (!remote) return;
+      const message = mapMessageRow(data);
+      const current = selectedConversationRef.current;
+      updateConversationFromMessage(data, message);
+      if (current && current.remoteJid === remote) {
+        if (message.sessionId) {
+          setBotSessionId(message.sessionId);
+        }
+        setMessages((prev) => {
+          const exists = prev.some(
+            (m) =>
+              (message.id && m.id === message.id) ||
+              (message.keyId && m.keyId === message.keyId)
+          );
+          if (exists) return prev;
+          const next = [...prev, message];
+          next.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+          return next;
+        });
+        // mediaUrl приходит в payload, дополнительных запросов не требуется
+      }
+    };
+    socket.on("messages.upsert", handleMessagesUpsert);
+
+    const handleSendMessage = (payload: {
+      data?: Partial<MessageRow> & { key?: MessageKey; messageId?: string };
+    }) => {
+      const data = payload?.data;
+      if (!data?.key) return;
+      const remote = resolveRemoteJid(data.key);
+      if (!remote) return;
+      const normalized: MessageRow = {
+        id: data.messageId || data.key?.id || `local-${Date.now()}`,
+        key: data.key || null,
+        message: data.message || null,
+        messageType: data.messageType || null,
+        messageTimestamp: data.messageTimestamp || null,
+        pushName: data.pushName || null,
+        status: data.status || null,
+        source: data.source || null,
+        instanceId: data.instanceId || null,
+        sessionId: data.sessionId || null
+      };
+      const message = mapMessageRow(normalized);
+      const current = selectedConversationRef.current;
+      updateConversationFromMessage(normalized, message);
+      if (current && current.remoteJid === remote) {
+        if (message.sessionId) {
+          setBotSessionId(message.sessionId);
+        }
+        setMessages((prev) => {
+          const exists = prev.some(
+            (m) =>
+              (message.id && m.id === message.id) ||
+              (message.keyId && m.keyId === message.keyId)
+          );
+          if (exists) return prev;
+          const next = [...prev, message];
+          next.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+          return next;
+        });
+      }
+    };
+    socket.on("send.message", handleSendMessage);
+
+    const handleMessagesUpdate = (payload: { data?: MessageUpdateRow }) => {
+      const data = payload?.data;
+      if (!data?.messageId && !data?.keyId) return;
+      const remote = data.remoteJid || null;
+      let delta = 0;
+      setMessages((prev) => {
+        let changed = false;
+        const next = prev.map((m) => {
+          const match =
+            (data.messageId && m.id === data.messageId) ||
+            (data.keyId && m.keyId === data.keyId);
+          if (!match) return m;
+          const prevStatus = m.status || null;
+          const nextStatus = data.status || m.status;
+          const prevRank = statusRank(prevStatus);
+          const nextRank = statusRank(nextStatus);
+          if (prevRank >= 0 && nextRank >= 0 && nextRank < prevRank) {
+            return m;
+          }
+          if (prevStatus !== nextStatus) {
+            changed = true;
+            if (!m.isOwn && remote) {
+              const wasUnread = isUnreadStatus(prevStatus);
+              const nowUnread = isUnreadStatus(nextStatus);
+              if (wasUnread !== nowUnread) {
+                delta += nowUnread ? 1 : -1;
+              }
+            }
+          }
+          return { ...m, status: nextStatus };
+        });
+        return changed ? next : prev;
+      });
+      if (remote && delta !== 0) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.remoteJid === remote
+              ? { ...c, unreadCount: Math.max(0, (c.unreadCount || 0) + delta) }
+              : c
+          )
+        );
+      }
+    };
+    socket.on("messages.update", handleMessagesUpdate);
+
+    const handleMessagesDelete = (payload: { data?: { id?: string; key?: { id?: string } } }) => {
+      const id = payload?.data?.id;
+      const keyId = payload?.data?.key?.id;
+      if (!id && !keyId) return;
+      const current = selectedConversationRef.current;
+      let delta = 0;
+      setMessages((prev) =>
+        prev.filter((m) => {
+          const match =
+            (id && m.id === id) ||
+            (keyId && m.keyId === keyId);
+          if (match && !m.isOwn && isUnreadStatus(m.status) && current?.remoteJid) {
+            delta -= 1;
+          }
+          return !match;
+        })
+      );
+      if (delta !== 0 && current?.remoteJid) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.remoteJid === current.remoteJid
+              ? { ...c, unreadCount: Math.max(0, (c.unreadCount || 0) + delta) }
+              : c
+          )
+        );
+      }
+    };
+    socket.on("messages.delete", handleMessagesDelete);
+
+    const handleChatsUpsert = (payload: {
+      data?: Array<{ remoteJid: string; instanceId: string; unreadMessages?: number }>;
+    }) => {
+      const rows = payload?.data || [];
+      if (!rows.length) return;
+      const contacts = contactByRemoteRef.current;
+      const statuses = instanceStatusesRef.current;
+      rows.forEach((row) => {
+        if (typeof row.unreadMessages === "number") {
+          skipUnreadIncrementRef.current[row.remoteJid] = true;
+        }
+      });
+      setConversations((prev) => {
+        const next = [...prev];
+        rows.forEach((row) => {
+          const idx = next.findIndex((c) => c.remoteJid === row.remoteJid);
+          if (idx === -1) {
+            next.unshift({
+              id: row.remoteJid,
+              remoteJid: row.remoteJid,
+              name: stripWhatsappSuffix(contacts[row.remoteJid]?.pushName || row.remoteJid),
+              avatar: contacts[row.remoteJid]?.profilePicUrl || fallbackAvatar,
+              lastMessage: "",
+              timestamp: "",
+              lastMessageTs: 0,
+              lastSource: "",
+              unreadCount: row.unreadMessages ?? 0,
+              isActive: false,
+              status: statuses[row.instanceId] === "open" ? "Онлайн" : "Не в сети",
+              labels: [],
+              instanceId: row.instanceId,
+              isAi: false
+            });
+          } else {
+            next[idx] = {
+              ...next[idx],
+              unreadCount: row.unreadMessages ?? next[idx].unreadCount,
+              instanceId: row.instanceId || next[idx].instanceId
+            };
+          }
+        });
+        return sortConversationsByTime(next);
+      });
+    };
+    socket.on("chats.upsert", handleChatsUpsert);
+
+    const handleChatsUpdate = (payload: {
+      data?: Array<{ remoteJid: string; instanceId: string; unreadMessages?: number }>;
+    }) => {
+      const rows = payload?.data || [];
+      if (!rows.length) return;
+      rows.forEach((row) => {
+        if (typeof row.unreadMessages === "number") {
+          skipUnreadIncrementRef.current[row.remoteJid] = true;
+        }
+      });
+      setConversations((prev) => {
+        const next = [...prev];
+        rows.forEach((row) => {
+          const idx = next.findIndex((c) => c.remoteJid === row.remoteJid);
+          if (idx === -1) return;
+          next[idx] = {
+            ...next[idx],
+            unreadCount: row.unreadMessages ?? next[idx].unreadCount,
+            instanceId: row.instanceId || next[idx].instanceId
+          };
+        });
+        return sortConversationsByTime(next);
+      });
+    };
+    socket.on("chats.update", handleChatsUpdate);
+
+    const handleChatsDelete = (payload: { data?: string[] }) => {
+      const rows = payload?.data || [];
+      if (!rows.length) return;
+      setConversations((prev) => prev.filter((c) => !rows.includes(c.remoteJid)));
+    };
+    socket.on("chats.delete", handleChatsDelete);
+
+    const handleContactsUpdate = (payload: { data?: Contact | Contact[] }) => {
+      const data = payload?.data;
+      const items = Array.isArray(data) ? data : data ? [data] : [];
+      if (!items.length) return;
+      setContactByRemote((prev) => {
+        const next = { ...prev };
+        items.forEach((c) => {
+          if (!c.remoteJid) return;
+          next[c.remoteJid] = { ...next[c.remoteJid], ...c };
+        });
+        return next;
+      });
+      setConversations((prev) =>
+        prev.map((c) => {
+          const updated = items.find((i) => i.remoteJid === c.remoteJid);
+          if (!updated) return c;
+          return {
+            ...c,
+            name: stripWhatsappSuffix(updated.pushName || c.name),
+            avatar: updated.profilePicUrl || c.avatar
+          };
+        })
+      );
+    };
+    socket.on("contacts.update", handleContactsUpdate);
+
+    const handleLabelsEdit = (payload: {
+      data?: { id?: string; name?: string; color?: string; deleted?: boolean };
+    }) => {
+      const data = payload?.data;
+      if (!data?.id) return;
+      setLabelsById((prev) => {
+        if (data.deleted) {
+          const next = { ...prev };
+          delete next[data.id as string];
+          return next;
+        }
+        return {
+          ...prev,
+          [data.id as string]: {
+            labelId: data.id as string,
+            name: data.name || data.id || "Label",
+            color: data.color || null
+          }
+        };
+      });
+    };
+    socket.on("labels.edit", handleLabelsEdit);
+
+    const handleLabelsAssociation = (payload: {
+      data?: { chatId?: string; labelId?: string; type?: "add" | "remove" };
+    }) => {
+      const data = payload?.data;
+      if (!data?.chatId || !data.labelId) return;
+      const labels = labelsByIdRef.current;
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.remoteJid !== data.chatId) return c;
+          const existing = c.labels?.map((l) => l.labelId) || [];
+          const nextIds =
+            data.type === "add"
+              ? Array.from(new Set([...existing, data.labelId]))
+              : existing.filter((id) => id !== data.labelId);
+          const nextLabels = nextIds.map((id) => labels[id as string] || { labelId: id, name: id });
+          return { ...c, labels: nextLabels };
+        })
+      );
+    };
+    socket.on("labels.association", handleLabelsAssociation);
+
+    const handleConnectionUpdate = (payload: {
+      instance?: string;
+      data?: { instance?: string; state?: string };
+    }) => {
+      const name = payload?.instance || payload?.data?.instance;
+      const state = payload?.data?.state;
+      if (!name || !state) return;
+      const id = instanceNameToIdRef.current[name];
+      if (!id) return;
+      setInstanceStatuses((prev) => ({ ...prev, [id]: state }));
+    };
+    socket.on("connection.update", handleConnectionUpdate);
+
+    const refreshInstances = () => {
+      loadChatsRef.current(
+        instanceNameRef.current || null,
+        preferredInstanceIdRef.current || null,
+        { search: debouncedSearchRef.current, preserve: true }
+      );
+    };
+
+    socket.on("instance.create", refreshInstances);
+    socket.on("instance.delete", refreshInstances);
+    socket.on("status.instance", refreshInstances);
+
+    return () => {
+      socket.off("connect_error", handleConnectError);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("connect", handleConnect);
+      socket.off("qrcode.updated", handleQrUpdated);
+      socket.off("messages.upsert", handleMessagesUpsert);
+      socket.off("send.message", handleSendMessage);
+      socket.off("messages.update", handleMessagesUpdate);
+      socket.off("messages.delete", handleMessagesDelete);
+      socket.off("chats.upsert", handleChatsUpsert);
+      socket.off("chats.update", handleChatsUpdate);
+      socket.off("chats.delete", handleChatsDelete);
+      socket.off("contacts.update", handleContactsUpdate);
+      socket.off("labels.edit", handleLabelsEdit);
+      socket.off("labels.association", handleLabelsAssociation);
+      socket.off("connection.update", handleConnectionUpdate);
+      socket.off("instance.create", refreshInstances);
+      socket.off("instance.delete", refreshInstances);
+      socket.off("status.instance", refreshInstances);
+    };
+  }, [apiKey, loadMessagesForConversation]);
 
   async function markConversationAsRead(conversation?: Conversation | null) {
     if (!conversation) return;
@@ -719,174 +1391,13 @@ export default function ChatApp() {
   }
 
   useEffect(() => {
-    const channel = supabase
-      .channel("chats-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "Message",
-          ...(preferredInstanceId ? { filter: `instanceId=eq.${preferredInstanceId}` } : {})
-        },
-        (payload) => {
-          const row = payload.new as MessageRow;
-          if (preferredInstanceId && row.instanceId && row.instanceId !== preferredInstanceId) return;
-          const remote = row?.key?.remoteJid || row?.key?.remoteJidAlt;
-          if (!remote) return;
-
-          const message = mapMessageRow(row);
-
-          setConversations((prev) => {
-            const idx = prev.findIndex((c) => c.remoteJid === remote);
-            let next = [...prev];
-            if (idx === -1) {
-              // новый чат
-              next.unshift({
-                id: row.chatId || row.id,
-                remoteJid: remote,
-                name: stripWhatsappSuffix(
-                  contactByRemote[remote]?.pushName || row.pushName || remote
-                ),
-                avatar: contactByRemote[remote]?.profilePicUrl || fallbackAvatar,
-                lastMessage: message.content,
-                timestamp: message.timestamp,
-                lastMessageTs: message.timestampMs,
-                lastSource: message.source,
-                unreadCount: message.isOwn ? 0 : 1,
-                isActive: false,
-                status: "Новый",
-                isAi: false
-              });
-            } else {
-              const updated = {
-                ...next[idx],
-                lastMessage: message.content,
-                timestamp: message.timestamp,
-                lastMessageTs: message.timestampMs,
-                lastSource: message.source,
-                unreadCount: message.isOwn ? next[idx].unreadCount : next[idx].unreadCount + 1
-              };
-              next.splice(idx, 1);
-              next.unshift(updated);
-            }
-            next = sortConversationsByTime(next);
-            return next;
-          });
-
-          setSelectedConversation((prev) => {
-            if (!prev || prev.remoteJid !== remote) return prev;
-            return {
-              ...prev,
-              lastMessage: message.content,
-              timestamp: message.timestamp,
-              lastMessageTs: message.timestampMs
-            };
-          });
-
-          setMessages((prev) => {
-            if (selectedConversation?.remoteJid !== remote) return prev;
-            const next = [...prev, message];
-            next.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
-            return next;
-          });
-
-          if (!message.attachments?.length) {
-            appendMediaToMessage(row.id);
-          }
-
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "MessageUpdate",
-          ...(preferredInstanceId ? { filter: `instanceId=eq.${preferredInstanceId}` } : {})
-        },
-        (payload) => {
-          const upd = payload.new as MessageUpdateRow;
-          if (preferredInstanceId && upd.instanceId && upd.instanceId !== preferredInstanceId) return;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === upd.messageId
-                ? { ...m, status: upd.status || m.status }
-                : m
-            )
-          );
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "Chat",
-          ...(preferredInstanceId ? { filter: `instanceId=eq.${preferredInstanceId}` } : {})
-        },
-        (payload) => {
-          const updatedChat = payload.new as ChatRow;
-          if (preferredInstanceId && updatedChat.instanceId !== preferredInstanceId) return;
-          if (!updatedChat || !updatedChat.remoteJid) return;
-          let latestBase: Conversation | null = null;
-          setConversations((prev) => {
-            const idx = prev.findIndex((c) => c.id === updatedChat.id);
-            const base = {
-              id: updatedChat.id,
-              remoteJid: updatedChat.remoteJid,
-              name: stripWhatsappSuffix(
-                updatedChat.name ||
-                  contactByRemote[updatedChat.remoteJid]?.pushName ||
-                  updatedChat.remoteJid
-              ),
-              avatar: contactByRemote[updatedChat.remoteJid]?.profilePicUrl || fallbackAvatar,
-              lastMessage: prev[idx]?.lastMessage || "",
-              timestamp:
-                updatedChat.updatedAt && !Number.isNaN(Date.parse(updatedChat.updatedAt))
-                  ? formatDateTimeWithTz(updatedChat.updatedAt)
-                  : prev[idx]?.timestamp || "",
-              lastMessageTs: updatedChat.updatedAt ? Date.parse(updatedChat.updatedAt) : prev[idx]?.lastMessageTs || 0,
-              lastSource: prev[idx]?.lastSource,
-              unreadCount: updatedChat.unreadMessages ?? prev[idx]?.unreadCount ?? 0,
-              isActive: false,
-              status: instanceStatuses[updatedChat.instanceId] === "open" ? "Онлайн" : "Не в сети",
-              labels: parseLabels(updatedChat.labels).map(
-                (id) => labelsById[id] || { labelId: id, name: id }
-              ),
-              isAi: Boolean(updatedChat.is_ai)
-            };
-            latestBase = base;
-
-            const next = [...prev];
-            if (idx === -1) {
-              next.unshift(base);
-            } else {
-              const merged = { ...next[idx], ...base, unreadCount: base.unreadCount };
-              next.splice(idx, 1);
-              next.unshift(merged);
-            }
-            return sortConversationsByTime(next);
-          });
-          setSelectedConversation((prev) =>
-            prev && prev.id === updatedChat.id && latestBase ? { ...prev, ...latestBase } : prev
-          );
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedConversation, contactByRemote, labelsById, instanceStatuses, preferredInstanceId]);
-
-  useEffect(() => {
     // Авто-пометка прочитанного убрана: делать вручную по действию
   }, [selectedConversation]);
 
   function mapMessageRow(m: MessageRow, mediaAttachments?: Attachment[]): Message {
+    const fromMe = m.key?.fromMe === true;
     const fromPayload = extractAttachments(m.message, {
-      allowMmg: Boolean(m.key?.fromMe),
+      allowMmg: fromMe,
       allowMmgForDocuments: true
     });
     const mergedAttachments: Attachment[] = [...fromPayload, ...(mediaAttachments || [])];
@@ -905,9 +1416,7 @@ export default function ChatApp() {
             byType[key] = { ...existing, caption: att.caption };
           }
         } else {
-          if (att.url || !["image", "video", "audio"].includes(att.type)) {
-            byType[key] = att;
-          }
+          byType[key] = att;
         }
       });
       return Object.values(byType);
@@ -920,31 +1429,12 @@ export default function ChatApp() {
       timestamp: formatTimestampFromSeconds(m.messageTimestamp),
       timestampMs: m.messageTimestamp ? m.messageTimestamp * 1000 : undefined,
       source: friendlySource(m.source),
-      isOwn: Boolean(m.key?.fromMe),
+      isOwn: fromMe,
       status: m.status ?? undefined,
       keyId: m.key?.id || m.id || undefined,
-      attachments: dedupedAttachments
+      attachments: dedupedAttachments,
+      sessionId: m.sessionId ?? null
     };
-  }
-
-  async function appendMediaToMessage(messageId?: string) {
-    if (!messageId) return;
-    const { data: mediaRows, error } = await supabase
-      .from("Media")
-      .select("id,fileName,type,mimetype,messageId,fileUrl")
-      .eq("messageId", messageId);
-    if (error || !mediaRows?.length) return;
-    const mediaAttachments = mediaRows
-      .map((row) => mapMediaAttachment(row as MediaRow))
-      .filter((item): item is Attachment => Boolean(item));
-    if (!mediaAttachments.length) return;
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === messageId
-          ? { ...m, attachments: [...(m.attachments || []), ...mediaAttachments] }
-          : m
-      )
-    );
   }
 
   const filteredConversations = conversations
@@ -1040,14 +1530,15 @@ export default function ChatApp() {
     return inst;
   }
 
-  async function handleSendMedia(payload: { url: string; caption?: string }) {
+  async function handleSendMedia(payload: { url: string; caption?: string; mediatype: "image" | "video" | "audio" | "document" }) {
     if (!selectedConversation) return;
     if (manualSendBlockedByAi()) return;
     const inst = await ensureInstance();
     try {
       await sendMedia(inst, {
         number: selectedConversation.remoteJid,
-        mediaUrl: payload.url,
+        mediatype: payload.mediatype,
+        media: payload.url,
         caption: payload.caption
       });
       toast({ title: "Медиа отправлено" });
@@ -1057,126 +1548,19 @@ export default function ChatApp() {
     }
   }
 
-  async function handleSendLocation(payload: { latitude: number; longitude: number; address?: string }) {
+  async function handleSendMediaFile(file: File, caption?: string, mediatype?: "image" | "video" | "audio" | "document") {
     if (!selectedConversation) return;
     if (manualSendBlockedByAi()) return;
     const inst = await ensureInstance();
     try {
-      await sendLocation(inst, {
-        number: selectedConversation.remoteJid,
-        latitude: payload.latitude,
-        longitude: payload.longitude,
-        address: payload.address
-      });
-      toast({ title: "Локация отправлена" });
-    } catch (err) {
-      toast({ title: "Не удалось отправить локацию", description: String(err) });
-      throw err;
-    }
-  }
-
-  async function handleSendContact(payload: { name: string; phone: string }) {
-    if (!selectedConversation) return;
-    if (manualSendBlockedByAi()) return;
-    const inst = await ensureInstance();
-    try {
-      await sendContact(inst, {
-        number: selectedConversation.remoteJid,
-        contactName: payload.name,
-        contactNumber: payload.phone
-      });
-      toast({ title: "Контакт отправлен" });
-    } catch (err) {
-      toast({ title: "Не удалось отправить контакт", description: String(err) });
-      throw err;
-    }
-  }
-
-  async function handleSendReaction(payload: { emoji: string; messageId: string }) {
-    if (!selectedConversation) return;
-    if (manualSendBlockedByAi()) return;
-    const inst = await ensureInstance();
-    try {
-      await sendReaction(inst, {
-        number: selectedConversation.remoteJid,
-        key: { id: payload.messageId, remoteJid: selectedConversation.remoteJid },
-        reaction: payload.emoji
-      });
-      toast({ title: "Реакция отправлена" });
-    } catch (err) {
-      toast({ title: "Не удалось отправить реакцию", description: String(err) });
-      throw err;
-    }
-  }
-
-  async function handleSendButtons(payload: { text: string; buttons: string[] }) {
-    if (!selectedConversation) return;
-    if (manualSendBlockedByAi()) return;
-    const inst = await ensureInstance();
-    try {
-      await sendButtons(inst, {
-        number: selectedConversation.remoteJid,
-        text: payload.text,
-        buttons: payload.buttons.map((b, idx) => ({ id: `btn-${idx}`, text: b }))
-      });
-      toast({ title: "Кнопки отправлены" });
-    } catch (err) {
-      toast({ title: "Не удалось отправить кнопки", description: String(err) });
-      throw err;
-    }
-  }
-
-  async function handleSendList(payload: {
-    title: string;
-    description?: string;
-    sections: Array<{ title: string; rows: string[] }>;
-  }) {
-    if (!selectedConversation) return;
-    if (manualSendBlockedByAi()) return;
-    const inst = await ensureInstance();
-    try {
-      await sendList(inst, {
-        number: selectedConversation.remoteJid,
-        title: payload.title,
-        description: payload.description,
-        sections: payload.sections.map((s) => ({
-          title: s.title,
-          rows: s.rows.map((r, idx) => ({ id: `row-${idx}`, title: r }))
-        }))
-      });
-      toast({ title: "Список отправлен" });
-    } catch (err) {
-      toast({ title: "Не удалось отправить список", description: String(err) });
-      throw err;
-    }
-  }
-
-  async function handleSendPoll(payload: { name: string; options: string[] }) {
-    if (!selectedConversation) return;
-    if (manualSendBlockedByAi()) return;
-    const inst = await ensureInstance();
-    try {
-      await sendPoll(inst, {
-        number: selectedConversation.remoteJid,
-        name: payload.name,
-        options: payload.options
-      });
-      toast({ title: "Опрос отправлен" });
-    } catch (err) {
-      toast({ title: "Не удалось отправить опрос", description: String(err) });
-      throw err;
-    }
-  }
-
-  async function handleSendMediaFile(file: File, caption?: string) {
-    if (!selectedConversation) return;
-    if (manualSendBlockedByAi()) return;
-    const inst = await ensureInstance();
-    try {
+      const safeType = mediatype || "document";
       await sendMediaFile(inst, {
         number: selectedConversation.remoteJid,
         file,
-        caption
+        caption,
+        mediatype: safeType,
+        mimetype: file.type || undefined,
+        fileName: file.name || undefined
       });
       toast({ title: "Файл отправлен" });
     } catch (err) {
@@ -1196,8 +1580,32 @@ export default function ChatApp() {
       null;
     if (qrcode) {
       setQrData(qrcode.startsWith("data:") ? qrcode : `data:image/png;base64,${qrcode}`);
+      setQrInstance(inst);
     }
   }
+
+  useEffect(() => {
+    if (!qrInstance) return;
+    let cancelled = false;
+    const stateInterval = setInterval(async () => {
+      try {
+        const res = await fetchConnectionState(qrInstance);
+        const state = res?.instance?.state || res?.state;
+        if (state === "open" && !cancelled) {
+          setQrData(null);
+          setQrInstance(null);
+          clearInterval(stateInterval);
+        }
+      } catch (err) {
+        console.warn("connectionState poll failed", err);
+      }
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(stateInterval);
+    };
+  }, [qrInstance]);
 
   async function handleLabelsUpdate(labelIds: string[]) {
     if (!selectedConversation) return;
@@ -1264,44 +1672,41 @@ export default function ChatApp() {
   }
 
   async function handleToggleAi(enabled: boolean) {
-    if (!selectedConversation) return;
-    const prevValue = Boolean(selectedConversation.isAi);
-
-    const applyLocal = (value: boolean) => {
-      setSelectedConversation((prev) =>
-        prev && prev.id === selectedConversation.id ? { ...prev, isAi: value } : prev
-      );
-      setConversations((prev) =>
-        prev.map((c) => (c.id === selectedConversation.id ? { ...c, isAi: value } : c))
-      );
-    };
-
-    applyLocal(enabled);
-    setAiUpdating(true);
-    try {
-      const { error } = await supabase
-        .from("Chat")
-        .update({ is_ai: enabled, updatedAt: new Date().toISOString() })
-        .eq("id", selectedConversation.id);
-      if (error) throw error;
+    if (!selectedConversation || !botSession) return;
+    const instId = selectedConversation.instanceId || "";
+    const instName = instId ? instanceNames[instId] : null;
+    if (!instName) {
       toast({
-        title: enabled ? "ИИ отвечает" : "ИИ отключен",
-        description: enabled
-          ? "Сообщения приходят автоматически, чтобы писать вручную выключите тумблер."
-          : "Режим агента активирован, можно писать."
+        title: "Не удалось переключить бота",
+        description: "Не найдено имя инстанса для чата."
       });
+      return;
+    }
+
+    const status = enabled ? "opened" : "paused";
+
+    setBotTogglePending(true);
+    try {
+      await changeN8nStatus(instName, {
+        remoteJid: selectedConversation.remoteJid,
+        status
+      });
+      setBotSession((prev) => (prev ? { ...prev, status } : prev));
+      if (enabled) {
+        await emitN8nLastMessage(instName, { remoteJid: selectedConversation.remoteJid });
+      }
     } catch (err) {
-      applyLocal(prevValue);
+      console.error("toggle bot error", err);
       toast({
-        title: "Не удалось сменить режим ИИ",
-        description: err instanceof Error ? err.message : String(err)
+        title: "Не удалось переключить бота",
+        description: err instanceof Error ? err.message : "Ошибка запроса"
       });
     } finally {
-      setAiUpdating(false);
+      setBotTogglePending(false);
     }
   }
-
-  const aiLocked = Boolean(selectedConversation?.isAi);
+ 
+  const aiLocked = botSession?.status === "opened";
 
   const manualSendBlockedByAi = () => {
     if (!aiLocked) return false;
@@ -1333,8 +1738,12 @@ export default function ChatApp() {
         if (msg) msgIds.push(msg.id);
       });
 
+      if (targetStatus === "READ") {
+        const instName = await ensureInstance();
+        await markChatAsRead(instName, { readMessages: items });
+      }
       if (msgIds.length) {
-        await supabase.from("Message").update({ status: targetStatus }).in("id", msgIds);
+        await updateMessagesStatus(msgIds, targetStatus);
       }
       const ids = new Set(items.map((i) => i.id));
       setMessages((prev) =>
@@ -1349,12 +1758,6 @@ export default function ChatApp() {
         const delta = incoming.length;
         const updatedUnread = isRead ? Math.max(0, baseUnread - delta) : baseUnread + delta;
 
-        await supabase
-          .from("Chat")
-          .update({ unreadMessages: updatedUnread, updatedAt: new Date().toISOString() })
-          .eq("instanceId", conversationEntry?.instanceId || selectedConversation.instanceId)
-          .eq("remoteJid", targetRemote);
-
         setConversations((prev) =>
           prev.map((c) =>
             incoming.some((i) => i.remoteJid === c.remoteJid)
@@ -1367,6 +1770,13 @@ export default function ChatApp() {
             ? { ...prev, unreadCount: updatedUnread }
             : prev
         );
+        if (targetRemote) {
+          await updateChatUnread({
+            instanceId: selectedConversation.instanceId,
+            remoteJid: targetRemote,
+            unreadMessages: updatedUnread
+          });
+        }
       }
     } catch (err) {
       console.warn("markMessagesAsRead error", err);
@@ -1374,59 +1784,94 @@ export default function ChatApp() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-72px)] bg-gray-50">
-      <ConversationList
-        conversations={filteredConversations}
-        selectedConversation={selectedConversation}
-        loading={loadingChats}
-        searchTerm={search}
-        onSearch={setSearch}
-        selectedTab={tab}
-        onTabChange={setTab}
-        chatsCount={conversations.filter((c) => (c.remoteJid || "").endsWith("@s.whatsapp.net")).length}
-        groupsCount={conversations.filter((c) => !!c.remoteJid && !(c.remoteJid || "").endsWith("@s.whatsapp.net")).length}
-        onSelectConversation={(c) => setSelectedConversation(c)}
-        onLoadMore={handleLoadMoreChats}
-        hasMore={hasMoreChats}
-        loadingMore={loadingMoreChats}
-      />
-
-      {selectedConversation ? (
-        <ChatArea
-          conversation={selectedConversation}
-          messages={messages}
-          onToggleProfile={() => setShowProfile(!showProfile)}
-          onSendMessage={handleSendMessage}
-          availableLabels={availableLabels}
-          onUpdateLabels={handleLabelsUpdate}
-          onSendMedia={(payload) => handleSendMedia(payload)}
-          onSendLocation={(payload) => handleSendLocation(payload)}
-          onSendContact={(payload) => handleSendContact(payload)}
-          onSendReaction={(payload) => handleSendReaction(payload)}
-          onSendButtons={(payload) => handleSendButtons(payload)}
-          onSendList={(payload) => handleSendList(payload)}
-          onSendPoll={(payload) => handleSendPoll(payload)}
-          onSendMediaFile={(file, caption) => handleSendMediaFile(file, caption)}
-          onShowQr={() => handleShowQr()}
-          onMarkMessagesRead={(items) => markMessagesAsRead(items)}
-          onMarkMessagesUnread={(items) => markMessagesAsRead(items, "DELIVERY_ACK")}
-          onEditMessage={(messageId, keyId, text) => handleEditMessage(messageId, keyId, text)}
-          canSend={canSend}
-          isAiEnabled={aiLocked}
-          onToggleAi={handleToggleAi}
-          aiTogglePending={aiUpdating}
-        />
-      ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
-          Нет выбранных чатов.
+    <div className="flex h-[calc(100vh-72px)] flex-col bg-gray-50">
+      {showAlertType ? (
+        <div className="px-4 pt-4">
+          {showAlertType === "apikey" ? (
+            <Alert variant="destructive">
+              <AlertTitle>Нет API-ключа</AlertTitle>
+              <AlertDescription>
+                <p>Добавьте ключ в Settings → Access, чтобы загрузить чаты.</p>
+                <Button asChild size="sm" className="mt-2">
+                  <Link href="/settings">Открыть Settings</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : showAlertType === "instances" ? (
+            <Alert>
+              <AlertTitle>Инстансы не найдены</AlertTitle>
+              <AlertDescription>
+                <p>Создайте инстанс и подключите WhatsApp, чтобы увидеть чаты.</p>
+                <Button asChild size="sm" className="mt-2">
+                  <Link href="/connections">Перейти к Connections</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert>
+              <AlertTitle>Инстанс не выбран</AlertTitle>
+              <AlertDescription>
+                <p>Выберите инстанс в Connections, чтобы открыть чаты.</p>
+                <Button asChild size="sm" className="mt-2">
+                  <Link href="/connections">Выбрать инстанс</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
-      )}
+      ) : null}
+      <div className="flex min-h-0 flex-1">
+        <ConversationList
+          conversations={filteredConversations}
+          selectedConversation={selectedConversation}
+          loading={loadingChats}
+          searchTerm={search}
+          onSearch={setSearch}
+          selectedTab={tab}
+          onTabChange={setTab}
+          chatsCount={conversations.filter((c) => (c.remoteJid || "").endsWith("@s.whatsapp.net")).length}
+          groupsCount={conversations.filter((c) => !!c.remoteJid && !(c.remoteJid || "").endsWith("@s.whatsapp.net")).length}
+          onSelectConversation={(c) => setSelectedConversation(c)}
+          onLoadMore={handleLoadMoreChats}
+          hasMore={hasMoreChats}
+          loadingMore={loadingMoreChats}
+        />
 
-      {showProfile && currentUser && (
-        <UserProfile user={currentUser} onClose={() => setShowProfile(false)} />
-      )}
+        {selectedConversation ? (
+          <ChatArea
+            conversation={selectedConversation}
+            messages={messages}
+            hasMoreMessages={hasMoreMessages}
+            isLoadingOlder={loadingOlderMessages}
+            onLoadOlder={loadOlderMessages}
+            onToggleProfile={() => setShowProfile(!showProfile)}
+            onSendMessage={handleSendMessage}
+            availableLabels={availableLabels}
+            onUpdateLabels={handleLabelsUpdate}
+            onSendMedia={(payload) => handleSendMedia(payload)}
+            onSendMediaFile={(file, caption, mediatype) => handleSendMediaFile(file, caption, mediatype)}
+            onShowQr={() => handleShowQr()}
+            onMarkMessagesRead={(items) => markMessagesAsRead(items)}
+            onMarkMessagesUnread={(items) => markMessagesAsRead(items, "DELIVERY_ACK")}
+            onEditMessage={(messageId, keyId, text) => handleEditMessage(messageId, keyId, text)}
+            canSend={canSend}
+            isAiEnabled={aiLocked}
+            onToggleAi={handleToggleAi}
+            aiTogglePending={botTogglePending}
+            showBotToggle={Boolean(botSession)}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
+            Нет выбранных чатов.
+          </div>
+        )}
 
-      <Dialog open={Boolean(qrData)} onOpenChange={(open) => !open && setQrData(null)}>
+        {showProfile && currentUser && (
+          <UserProfile user={currentUser} onClose={() => setShowProfile(false)} />
+        )}
+      </div>
+
+      <Dialog open={Boolean(qrData)} onOpenChange={(open) => !open && (setQrData(null), setQrInstance(null))}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>QR для подключения</DialogTitle>

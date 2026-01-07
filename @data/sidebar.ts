@@ -1,5 +1,5 @@
-import { IconDashboard, IconListDetails, IconRobot, IconUsers, IconHome, IconBrandWhatsapp } from "@tabler/icons-react";
-import { KanbanIcon } from "lucide-react";
+import { IconDashboard, IconUsers, IconHome, IconSettings } from "@tabler/icons-react";
+import { Bot, KanbanIcon, Link as LinkIcon, MessageCircle } from "lucide-react";
 
 export const sidebarData = {
   user: {
@@ -12,40 +12,30 @@ export const sidebarData = {
       title: "Главное",
       items: [
         {
-          title: "CRM",
-          url: "/crm",
-          icon: IconDashboard,
-        },
-        {
           title: "Чаты",
           url: "/chats",
-          icon: IconUsers
-        },
-        {
-          title: "Канбан",
-          url: "/kanban-board",
-          icon: KanbanIcon
-        },
-        {
-          title: "Недвижимость",
-          url: "/real-estate-listings",
-          icon: IconHome
+          icon: MessageCircle
         },
         {
           title: "Клиенты",
           url: "/customers",
-          icon: IconListDetails,
+          icon: IconUsers,
         },
         {
           title: "AI-чат",
           url: "/ai-chat",
-          icon: IconRobot
+          icon: Bot
         },
         {
           title: "Коннекты",
           url: "/connections",
-          icon: IconBrandWhatsapp
+          icon: LinkIcon
         },
+        {
+          title: "Настройки",
+          url: "/settings",
+          icon: IconSettings
+        }
       ]
     }
   ]

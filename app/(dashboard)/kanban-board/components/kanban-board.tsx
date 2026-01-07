@@ -164,7 +164,7 @@ export default function KanbanBoard() {
       {
         id: "6",
         title: "Миграция сделок в новую CRM",
-        description: "Перенести воронку, статусы и права. Проверить вебхуки на оплату.",
+        description: "Перенести сценарий, статусы и права. Проверить вебхуки на оплату.",
         priority: "medium",
         assignee: "Самат Ж.",
         dueDate: "23.06.2024",

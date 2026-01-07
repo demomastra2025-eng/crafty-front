@@ -1,33 +1,114 @@
 const API_URL = process.env.NEXT_PUBLIC_EVOLUTION_API_URL || process.env.EVOLUTION_API_URL;
-const API_KEY = process.env.NEXT_PUBLIC_EVOLUTION_API_KEY || process.env.EVOLUTION_API_KEY;
 const OWNER_NUMBER =
   process.env.NEXT_PUBLIC_EVOLUTION_OWNER_NUMBER || process.env.EVOLUTION_OWNER_NUMBER;
 const FALLBACK_INSTANCE =
   process.env.NEXT_PUBLIC_EVOLUTION_INSTANCE || process.env.EVOLUTION_INSTANCE;
 
 const PREFERRED_INSTANCE_KEY = "crafty:selected-evo-instance";
+const PREFERRED_INSTANCE_OWNER_KEY = "crafty:selected-evo-instance-owner";
 
 export type PreferredInstance = {
   id?: string | null;
   name?: string | null;
 };
 
-if (!API_URL || !API_KEY) {
-  console.warn("Evolution API env vars not fully set (EVOLUTION_API_URL/KEY).");
+if (!API_URL) {
+  console.warn("Evolution API URL is not set (EVOLUTION_API_URL).");
 }
 
 const isServer = typeof window === "undefined";
 const API_BASE = API_URL ? API_URL.replace(/\/$/, "") : "";
 const PROXY_BASE = "/api/evo";
+const API_KEY_STORAGE = "crafty:evo-api-key";
 
 const ensureServerEnv = () => {
-  if (isServer && (!API_URL || !API_KEY)) {
+  if (isServer && !API_URL) {
     throw new Error("Evolution API env vars are missing.");
   }
 };
 
-const evoHeaders = (headers: HeadersInit = {}) =>
-  isServer ? { ...headers, apikey: API_KEY! } : headers;
+const readStoredApiKey = () => {
+  if (isServer) return null;
+  try {
+    return localStorage.getItem(API_KEY_STORAGE);
+  } catch {
+    return null;
+  }
+};
+
+const hashApiKey = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+};
+
+const getPreferredOwnerHash = () => {
+  if (isServer) return null;
+  try {
+    return localStorage.getItem(PREFERRED_INSTANCE_OWNER_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const setPreferredOwnerHash = (hash: string | null) => {
+  if (isServer) return;
+  try {
+    if (hash) {
+      localStorage.setItem(PREFERRED_INSTANCE_OWNER_KEY, hash);
+    } else {
+      localStorage.removeItem(PREFERRED_INSTANCE_OWNER_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+};
+
+export const setApiKey = (key: string | null) => {
+  if (isServer) return;
+  const prev = readStoredApiKey();
+  if (prev && key && prev !== key) {
+    setPreferredInstance(null);
+  }
+  if (!key) {
+    setPreferredInstance(null);
+  }
+  try {
+    if (key) localStorage.setItem(API_KEY_STORAGE, key);
+    else localStorage.removeItem(API_KEY_STORAGE);
+  } catch {
+    // ignore storage errors
+  }
+  if (key) {
+    setPreferredOwnerHash(hashApiKey(key));
+  } else {
+    setPreferredOwnerHash(null);
+  }
+  try {
+    if (key) {
+      document.cookie = `crafty_apikey=${encodeURIComponent(key)}; Path=/; SameSite=Lax`;
+    } else {
+      document.cookie = "crafty_apikey=; Path=/; Max-Age=0; SameSite=Lax";
+    }
+  } catch {
+    // ignore cookie errors
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("crafty:apikey-changed", { detail: key }));
+  } catch {
+    // ignore dispatch errors
+  }
+};
+
+export const getApiKey = () => readStoredApiKey();
+
+const evoHeaders = (headers: HeadersInit = {}) => {
+  const storedKey = readStoredApiKey();
+  return storedKey ? { ...headers, apikey: storedKey } : headers;
+};
 
 const evoBaseUrl = () => (isServer ? API_BASE : PROXY_BASE);
 
@@ -58,6 +139,13 @@ const buildQuery = (params: Record<string, string | undefined>) => {
 
 const getPreferredInstance = (): PreferredInstance | null => {
   if (isServer) return null;
+  const currentKey = readStoredApiKey();
+  const currentHash = currentKey ? hashApiKey(currentKey) : null;
+  const ownerHash = getPreferredOwnerHash();
+  if (ownerHash && currentHash && ownerHash !== currentHash) {
+    setPreferredInstance(null);
+    return null;
+  }
   try {
     const raw = localStorage.getItem(PREFERRED_INSTANCE_KEY);
     if (!raw) return null;
@@ -74,6 +162,7 @@ const getPreferredInstance = (): PreferredInstance | null => {
   }
 };
 
+
 export const setPreferredInstance = (payload: PreferredInstance | null) => {
   if (isServer) return;
   try {
@@ -82,6 +171,10 @@ export const setPreferredInstance = (payload: PreferredInstance | null) => {
         PREFERRED_INSTANCE_KEY,
         JSON.stringify({ id: payload.id || null, name: payload.name || null })
       );
+      const currentKey = readStoredApiKey();
+      if (currentKey) {
+        setPreferredOwnerHash(hashApiKey(currentKey));
+      }
     } else {
       localStorage.removeItem(PREFERRED_INSTANCE_KEY);
     }
@@ -116,6 +209,197 @@ export async function fetchInstances(): Promise<EvoInstance[]> {
     .filter((item): item is EvoInstance => Boolean(item));
 
   return normalized;
+}
+
+export async function changeN8nStatus(
+  instance: string,
+  payload: { remoteJid: string; status: "opened" | "paused" | "closed" | "delete" }
+) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/n8n/changeStatus/${instance}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`changeN8nStatus error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function fetchN8nSessions(
+  instance: string,
+  botId: string,
+  remoteJid?: string
+) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const qs = buildQuery({ remoteJid });
+  const url = `${evoBaseUrl()}/n8n/fetchSessions/${botId}/${instance}${qs}`;
+  const res = await fetch(url, { headers: evoHeaders() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`fetchN8nSessions error ${res.status}: ${body}`);
+  }
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function emitN8nLastMessage(instance: string, payload: { remoteJid: string }) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/n8n/emitLastMessage/${instance}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`emitN8nLastMessage error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function fetchN8nBots(instance: string) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/n8n/find/${instance}`;
+  const res = await fetch(url, { headers: evoHeaders() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`fetchN8nBots error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function createN8nBot(instance: string, payload: Record<string, unknown>) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/n8n/create/${instance}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`createN8nBot error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function updateN8nBot(
+  instance: string,
+  botId: string,
+  payload: Record<string, unknown>
+) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/n8n/update/${botId}/${instance}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`updateN8nBot error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function deleteN8nBot(instance: string, botId: string) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/n8n/delete/${botId}/${instance}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: evoHeaders()
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`deleteN8nBot error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function fetchFunnels(instance: string) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/funnel/list/${instance}`;
+  const res = await fetch(url, { headers: evoHeaders() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`fetchFunnels error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function deleteFunnel(instance: string, funnelId: string) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/funnel/delete/${funnelId}/${instance}`;
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: evoHeaders()
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`deleteFunnel error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function createFunnel(instance: string, payload: Record<string, unknown>) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/funnel/create/${instance}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`createFunnel error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function updateFunnel(
+  instance: string,
+  funnelId: string,
+  payload: Record<string, unknown>
+) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/funnel/update/${funnelId}/${instance}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`updateFunnel error ${res.status}: ${body}`);
+  }
+  return res.json();
 }
 
 export async function resolveInstance(): Promise<string | null> {
@@ -188,121 +472,19 @@ export async function sendMedia(instance: string, payload: Record<string, unknow
   return res.json();
 }
 
-export async function sendLocation(instance: string, payload: Record<string, unknown>) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/message/sendLocation/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`sendLocation error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function sendContact(instance: string, payload: Record<string, unknown>) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/message/sendContact/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`sendContact error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function sendReaction(instance: string, payload: Record<string, unknown>) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/message/sendReaction/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`sendReaction error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function sendButtons(instance: string, payload: Record<string, unknown>) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/message/sendButtons/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`sendButtons error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function sendList(instance: string, payload: Record<string, unknown>) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/message/sendList/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`sendList error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function sendPoll(instance: string, payload: Record<string, unknown>) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/message/sendPoll/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`sendPoll error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function sendMediaFile(instance: string, payload: { number: string; file: File; caption?: string }) {
+export async function sendMediaFile(
+  instance: string,
+  payload: { number: string; file: File; caption?: string; mediatype: string; mimetype?: string; fileName?: string }
+) {
   ensureServerEnv();
   if (!instance) throw new Error("Evolution API env vars are missing.");
   const url = `${evoBaseUrl()}/message/sendMedia/${instance}`;
   const form = new FormData();
   form.append("number", payload.number);
+  form.append("mediatype", payload.mediatype);
   if (payload.caption) form.append("caption", payload.caption);
+  if (payload.mimetype) form.append("mimetype", payload.mimetype);
+  if (payload.fileName) form.append("fileName", payload.fileName);
   form.append("file", payload.file);
 
   const res = await fetch(url, {
@@ -632,6 +814,36 @@ export async function setProxy(instance: string, payload: Record<string, unknown
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`setProxy error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function findWebhook(instance: string) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const res = await fetch(`${evoBaseUrl()}/webhook/find/${instance}`, {
+    headers: evoHeaders()
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`findWebhook error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function setWebhook(instance: string, payload: Record<string, unknown>) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const res = await fetch(`${evoBaseUrl()}/webhook/set/${instance}`, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`setWebhook error ${res.status}: ${body}`);
   }
   return res.json();
 }

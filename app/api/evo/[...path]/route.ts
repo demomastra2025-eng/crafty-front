@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const API_URL = process.env.EVOLUTION_API_URL || process.env.NEXT_PUBLIC_EVOLUTION_API_URL;
-const API_KEY = process.env.EVOLUTION_API_KEY || process.env.NEXT_PUBLIC_EVOLUTION_API_KEY;
 const UPSTREAM_BASE = API_URL ? API_URL.replace(/\/$/, "") : "";
 
 async function handler(
   req: NextRequest,
   context: { params: Promise<{ path?: string[] }> }
 ) {
-  if (!API_URL || !API_KEY) {
-    return NextResponse.json(
-      { error: "Evolution API env vars are missing." },
-      { status: 500 }
-    );
+  if (!API_URL) {
+    return NextResponse.json({ error: "Evolution API URL is missing." }, { status: 500 });
   }
 
   try {
@@ -20,7 +16,12 @@ async function handler(
     const targetUrl = `${UPSTREAM_BASE}/${segments.join("/")}${req.nextUrl.search}`;
 
     const headers = new Headers(req.headers);
-    headers.set("apikey", API_KEY);
+    const incomingKey = req.headers.get("apikey") || req.headers.get("x-evo-apikey");
+    const cookieKey = req.cookies.get("crafty_apikey")?.value;
+    const finalKey = incomingKey || cookieKey;
+    if (finalKey) {
+      headers.set("apikey", finalKey);
+    }
     headers.delete("host");
     headers.delete("content-length");
     headers.delete("connection");
