@@ -12,3 +12,9 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
     env_file:
       - .env
+    networks:
+      - evolution-net
+
+networks:
+  evolution-net:
+    external: true
