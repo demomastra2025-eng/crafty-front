@@ -5,16 +5,24 @@ services:
       dockerfile: Dockerfile
     container_name: crafty_client
     restart: unless-stopped
-    ports:
-      - "3001:3001"
+    user: "node"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+      - /app/.next/cache:uid=1000,gid=1000,mode=700
+    pids_limit: 200
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
     env_file:
       - .env
     networks:
-      - evolution-net
+      - frontend-internal
 
 networks:
-  evolution-net:
+  frontend-internal:
     external: true

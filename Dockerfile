@@ -20,5 +20,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/cache ./.next/cache
 COPY --from=builder /app/next.config.js .
 COPY --from=builder /app/next-env.d.ts .
+RUN chown -R node:node /app
+USER node
 EXPOSE 3001
 CMD ["npm", "start"]
