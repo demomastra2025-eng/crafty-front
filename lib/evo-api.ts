@@ -211,101 +211,67 @@ export async function fetchInstances(): Promise<EvoInstance[]> {
   return normalized;
 }
 
-export async function changeN8nStatus(
-  instance: string,
-  payload: { remoteJid: string; status: "opened" | "paused" | "closed" | "delete" }
-) {
+export async function fetchAgnoBots(instance: string) {
   ensureServerEnv();
   if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/n8n/changeStatus/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`changeN8nStatus error ${res.status}: ${body}`);
-  }
-  return res.json();
-}
-
-export async function fetchN8nSessions(
-  instance: string,
-  botId: string,
-  remoteJid?: string
-) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const qs = buildQuery({ remoteJid });
-  const url = `${evoBaseUrl()}/n8n/fetchSessions/${botId}/${instance}${qs}`;
+  const url = `${evoBaseUrl()}/agno/find/${instance}`;
   const res = await fetch(url, { headers: evoHeaders() });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`fetchN8nSessions error ${res.status}: ${body}`);
-  }
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
-}
-
-export async function emitN8nLastMessage(instance: string, payload: { remoteJid: string }) {
-  ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/n8n/emitLastMessage/${instance}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: evoHeaders({
-      "Content-Type": "application/json"
-    }),
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`emitN8nLastMessage error ${res.status}: ${body}`);
+    throw new Error(`fetchAgnoBots error ${res.status}: ${body}`);
   }
   return res.json();
 }
 
-export async function fetchN8nBots(instance: string) {
+export type LlmModel = {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  type: string;
+  config?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export async function fetchLlmModels() {
   ensureServerEnv();
-  if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/n8n/find/${instance}`;
+  const url = `${evoBaseUrl()}/llm-models`;
   const res = await fetch(url, { headers: evoHeaders() });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`fetchN8nBots error ${res.status}: ${body}`);
+    throw new Error(`fetchLlmModels error ${res.status}: ${body}`);
   }
   return res.json();
 }
 
-export async function createN8nBot(instance: string, payload: Record<string, unknown>) {
+export async function createAgnoBot(instance: string, payload: Record<string, unknown>) {
   ensureServerEnv();
   if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/n8n/create/${instance}`;
+  const url = `${evoBaseUrl()}/agno/create/${instance}`;
   const res = await fetch(url, {
     method: "POST",
     headers: evoHeaders({
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-message-author": "manager"
     }),
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`createN8nBot error ${res.status}: ${body}`);
+    throw new Error(`createAgnoBot error ${res.status}: ${body}`);
   }
   return res.json();
 }
 
-export async function updateN8nBot(
+export async function updateAgnoBot(
   instance: string,
   botId: string,
   payload: Record<string, unknown>
 ) {
   ensureServerEnv();
   if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/n8n/update/${botId}/${instance}`;
+  const url = `${evoBaseUrl()}/agno/update/${botId}/${instance}`;
   const res = await fetch(url, {
     method: "PUT",
     headers: evoHeaders({
@@ -315,22 +281,95 @@ export async function updateN8nBot(
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`updateN8nBot error ${res.status}: ${body}`);
+    throw new Error(`updateAgnoBot error ${res.status}: ${body}`);
   }
   return res.json();
 }
 
-export async function deleteN8nBot(instance: string, botId: string) {
+export async function deleteAgnoBot(instance: string, botId: string) {
   ensureServerEnv();
   if (!instance) throw new Error("Evolution API env vars are missing.");
-  const url = `${evoBaseUrl()}/n8n/delete/${botId}/${instance}`;
+  const url = `${evoBaseUrl()}/agno/delete/${botId}/${instance}`;
   const res = await fetch(url, {
     method: "DELETE",
     headers: evoHeaders()
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`deleteN8nBot error ${res.status}: ${body}`);
+    throw new Error(`deleteAgnoBot error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function fetchAgnoSettings(instance: string) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/agno/fetchSettings/${instance}`;
+  const res = await fetch(url, { headers: evoHeaders() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`fetchAgnoSettings error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function changeAgnoStatus(
+  instance: string,
+  payload:
+    | { remoteJid: string; status: "opened" | "paused" | "closed" | "delete" }
+    | { botId: string; allSessions: true; status: "opened" | "paused" | "closed" | "delete" }
+) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/agno/changeStatus/${instance}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json",
+      "x-message-author": "manager"
+    }),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`changeAgnoStatus error ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+export async function fetchAgnoSessions(
+  instance: string,
+  botId: string,
+  remoteJid?: string
+) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const qs = buildQuery({ remoteJid });
+  const url = `${evoBaseUrl()}/agno/fetchSessions/${botId}/${instance}${qs}`;
+  const res = await fetch(url, { headers: evoHeaders() });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`fetchAgnoSessions error ${res.status}: ${body}`);
+  }
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function emitAgnoLastMessage(instance: string, payload: { remoteJid: string }) {
+  ensureServerEnv();
+  if (!instance) throw new Error("Evolution API env vars are missing.");
+  const url = `${evoBaseUrl()}/agno/emitLastMessage/${instance}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: evoHeaders({
+      "Content-Type": "application/json",
+      "x-message-author": "manager"
+    }),
+    body: JSON.stringify({ ...payload, author: "manager" })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`emitAgnoLastMessage error ${res.status}: ${body}`);
   }
   return res.json();
 }
@@ -369,9 +408,10 @@ export async function createFunnel(instance: string, payload: Record<string, unk
   const res = await fetch(url, {
     method: "POST",
     headers: evoHeaders({
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-message-author": "manager"
     }),
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, author: "manager" })
   });
   if (!res.ok) {
     const body = await res.text();
@@ -441,9 +481,10 @@ export async function sendTextMessage(instance: string, payload: SendTextPayload
   const res = await fetch(url, {
     method: "POST",
     headers: evoHeaders({
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-message-author": "manager"
     }),
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, author: "manager" })
   });
 
   if (!res.ok) {
@@ -461,9 +502,10 @@ export async function sendMedia(instance: string, payload: Record<string, unknow
   const res = await fetch(url, {
     method: "POST",
     headers: evoHeaders({
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-message-author": "manager"
     }),
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, author: "manager" })
   });
   if (!res.ok) {
     const body = await res.text();
@@ -485,11 +527,12 @@ export async function sendMediaFile(
   if (payload.caption) form.append("caption", payload.caption);
   if (payload.mimetype) form.append("mimetype", payload.mimetype);
   if (payload.fileName) form.append("fileName", payload.fileName);
+  form.append("author", "manager");
   form.append("file", payload.file);
 
   const res = await fetch(url, {
     method: "POST",
-    headers: evoHeaders(),
+    headers: evoHeaders({ "x-message-author": "manager" }),
     body: form
   });
   if (!res.ok) {
@@ -671,6 +714,15 @@ export async function createInstance(payload: {
   integration?: string;
   qrcode?: boolean;
   number?: string;
+  rejectCall?: boolean;
+  msgCall?: string;
+  groupsIgnore?: boolean;
+  alwaysOnline?: boolean;
+  readMessages?: boolean;
+  readStatus?: boolean;
+  syncFullHistory?: boolean;
+  mediaRecognition?: boolean;
+  wavoipToken?: string;
 }) {
   ensureServerEnv();
   const res = await fetch(`${evoBaseUrl()}/instance/create`, {

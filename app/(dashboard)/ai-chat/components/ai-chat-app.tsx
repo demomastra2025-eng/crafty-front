@@ -8,37 +8,43 @@ import { useChat } from "@ai-sdk/react";
 import { WelcomeScreen } from "@/app/(dashboard)/ai-chat/components/welcome-screen";
 import { ChatInterface } from "@/app/(dashboard)/ai-chat/components/chat-interface";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { N8nAgents } from "@/app/(dashboard)/ai-chat/components/n8n-agents";
+import { AgnoAgents, type AgnoForm, type AgnoAgentCatalogItem } from "@/app/(dashboard)/ai-chat/components/agno-agents";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
-  createN8nBot,
-  deleteN8nBot,
+  createAgnoBot,
+  deleteAgnoBot,
+  fetchAgnoBots,
   fetchInstances,
   fetchFunnels,
   getApiKey,
-  fetchN8nBots,
   readPreferredInstance,
   setPreferredInstance,
-  updateN8nBot,
+  updateAgnoBot,
+  fetchAgnoSessions,
+  changeAgnoStatus,
   createFunnel,
   updateFunnel,
-  deleteFunnel
+  deleteFunnel,
+  fetchLlmModels,
+  type LlmModel
 } from "@/lib/evo-api";
+import { fetchAgnoAgentCatalog, getAgnoDefaultPort } from "@/lib/agno-api";
+import { listCompanies } from "@/lib/evo-auth";
 
-type N8nAgent = {
+type AgnoAgent = {
   id: string;
   enabled?: boolean;
   description?: string;
   prompt?: string;
-  webhookUrl?: string;
-  basicAuthUser?: string;
-  basicAuthPass?: string;
+  agentId?: string;
+  webhookUrl?: string | null;
+  providerModel?: string | null;
+  agnoPort?: number | null;
   triggerType?: string;
   triggerOperator?: string | null;
   triggerValue?: string | null;
   funnelId?: string | null;
-  updatedAt?: string;
   expire?: number | null;
   keywordFinish?: string | null;
   delayMessage?: number | null;
@@ -53,30 +59,9 @@ type N8nAgent = {
   instanceName?: string | null;
 };
 
-type N8nForm = {
-  instanceName: string;
-  enabled: boolean;
-  description: string;
-  webhookUrl: string;
-  useCustomWebhook: boolean;
-  basicAuthUser: string;
-  basicAuthPass: string;
-  prompt: string;
-  triggerType: "all" | "keyword" | "advanced" | "none";
-  triggerOperator: "equals" | "contains" | "startsWith" | "endsWith" | "regex";
-  triggerValue: string;
-  funnelId: string;
-  expire: string;
-  keywordFinish: string;
-  delayMessage: string;
-  unknownMessage: string;
-  listeningFromMe: boolean;
-  stopBotFromMe: boolean;
-  keepOpen: boolean;
-  debounceTime: string;
-  ignoreJids: string;
-  splitMessages: boolean;
-  timePerChar: string;
+type AgnoSession = {
+  id: string;
+  status?: "opened" | "paused" | "closed" | string | null;
 };
 
 type Funnel = {
@@ -113,15 +98,16 @@ type FunnelForm = {
   stages: FunnelStageForm[];
 };
 
-const defaultAgentForm: N8nForm = {
+const defaultAgnoForm: AgnoForm = {
   instanceName: "",
   enabled: false,
   description: "",
-  webhookUrl: "",
-  useCustomWebhook: false,
-  basicAuthUser: "",
-  basicAuthPass: "",
   prompt: "",
+  agentId: "",
+  webhookEnabled: false,
+  webhookUrl: "",
+  providerModel: "",
+  agnoPort: "",
   triggerType: "all",
   triggerOperator: "contains",
   triggerValue: "",
@@ -160,6 +146,7 @@ const defaultFunnelForm: FunnelForm = {
 };
 
 const CHAT_SEED_TS = Date.parse("2026-01-01T12:00:00Z");
+const COMPANY_STORAGE = "crafty:evo-company";
 const seedDate = (offsetMs: number) => new Date(CHAT_SEED_TS - offsetMs);
 const seedChats = [
     {
@@ -284,16 +271,28 @@ export default function AIChatApp() {
     setSelectedChatId("new");
   };
 
-  const [n8nInstanceName, setN8nInstanceName] = useState<string | null>(null);
-  const [n8nInstances, setN8nInstances] = useState<string[]>([]);
-  const [n8nAgents, setN8nAgents] = useState<N8nAgent[]>([]);
-  const [n8nLoading, setN8nLoading] = useState(false);
-  const [n8nSaving, setN8nSaving] = useState(false);
-  const [n8nError, setN8nError] = useState<string | null>(null);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedAgentInstance, setSelectedAgentInstance] = useState<string | null>(null);
-  const [agentMode, setAgentMode] = useState<"idle" | "create" | "edit">("idle");
-  const [agentForm, setAgentForm] = useState<N8nForm>(defaultAgentForm);
+  const [instanceName, setInstanceName] = useState<string | null>(null);
+  const [instances, setInstances] = useState<string[]>([]);
+  const [agnoAgents, setAgnoAgents] = useState<AgnoAgent[]>([]);
+  const [agnoLoading, setAgnoLoading] = useState(false);
+  const [agnoSaving, setAgnoSaving] = useState(false);
+  const [agnoError, setAgnoError] = useState<string | null>(null);
+  const [selectedAgnoAgentId, setSelectedAgnoAgentId] = useState<string | null>(null);
+  const [selectedAgnoAgentInstance, setSelectedAgnoAgentInstance] = useState<string | null>(null);
+  const [agnoAgentMode, setAgnoAgentMode] = useState<"idle" | "create" | "edit">("idle");
+  const [agnoAgentForm, setAgnoAgentForm] = useState<AgnoForm>(defaultAgnoForm);
+  const [agnoCatalog, setAgnoCatalog] = useState<AgnoAgentCatalogItem[]>([]);
+  const [agnoCatalogLoading, setAgnoCatalogLoading] = useState(false);
+  const [agnoCatalogError, setAgnoCatalogError] = useState<string | null>(null);
+  const [llmModels, setLlmModels] = useState<LlmModel[]>([]);
+  const [llmModelsLoading, setLlmModelsLoading] = useState(false);
+  const [llmModelsError, setLlmModelsError] = useState<string | null>(null);
+  const [companyPorts, setCompanyPorts] = useState<number[]>([]);
+  const defaultAgnoPort = getAgnoDefaultPort();
+  const [agnoSessions, setAgnoSessions] = useState<AgnoSession[]>([]);
+  const [agnoSessionsLoading, setAgnoSessionsLoading] = useState(false);
+  const [agnoSessionsError, setAgnoSessionsError] = useState<string | null>(null);
+  const sessionsRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [apiKey, setApiKeyState] = useState<string | null>(() => getApiKey());
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [funnelLoading, setFunnelLoading] = useState(false);
@@ -304,57 +303,82 @@ export default function AIChatApp() {
   const [selectedFunnelId, setSelectedFunnelId] = useState<string | null>(null);
   const [funnelForm, setFunnelForm] = useState<FunnelForm>(defaultFunnelForm);
   const showApiKeyAlert = !apiKey;
-  const showInstancesAlert = Boolean(apiKey) && n8nInstances.length === 0;
+  const showInstancesAlert = Boolean(apiKey) && instances.length === 0;
 
-  const loadAgents = useCallback(async (instanceNames: string[]) => {
+  const loadAgnoAgents = useCallback(async (instanceNames: string[]) => {
     if (!instanceNames.length) {
-      setN8nAgents([]);
+      setAgnoAgents([]);
       return;
     }
-    setN8nLoading(true);
+    setAgnoLoading(true);
     try {
       const results = await Promise.all(
         instanceNames.map(async (instanceName) => {
           try {
-            const data = await fetchN8nBots(instanceName);
+            const data = await fetchAgnoBots(instanceName);
             const list = Array.isArray(data) ? data : [];
-            return list.map((agent: N8nAgent) => ({ ...agent, instanceName }));
+            return list.map((agent: AgnoAgent) => ({ ...agent, instanceName }));
           } catch {
             return [];
           }
         })
       );
-      setN8nAgents(results.flat());
+      setAgnoAgents(results.flat());
     } finally {
-      setN8nLoading(false);
+      setAgnoLoading(false);
     }
   }, []);
 
+  const loadAgnoSessions = useCallback(async (instance: string, botId: string) => {
+    setAgnoSessionsLoading(true);
+    setAgnoSessionsError(null);
+    try {
+      const data = await fetchAgnoSessions(instance, botId);
+      setAgnoSessions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setAgnoSessions([]);
+      setAgnoSessionsError(err instanceof Error ? err.message : "Ошибка загрузки сессий");
+    } finally {
+      setAgnoSessionsLoading(false);
+    }
+  }, []);
+
+  const scheduleAgnoSessionsRefresh = useCallback(() => {
+    if (activeTab !== "agents") return;
+    if (agnoAgentMode !== "edit" || !selectedAgnoAgentId || !selectedAgnoAgentInstance) return;
+    if (sessionsRefreshTimerRef.current) {
+      clearTimeout(sessionsRefreshTimerRef.current);
+    }
+    sessionsRefreshTimerRef.current = setTimeout(() => {
+      loadAgnoSessions(selectedAgnoAgentInstance, selectedAgnoAgentId);
+    }, 300);
+  }, [activeTab, agnoAgentMode, selectedAgnoAgentId, selectedAgnoAgentInstance, loadAgnoSessions]);
+
   const refreshInstances = useCallback(async () => {
     if (!apiKey) {
-      setN8nInstances([]);
-      setN8nInstanceName(null);
+      setInstances([]);
+      setInstanceName(null);
       return;
     }
     try {
       const list = await fetchInstances();
       const names = list.map((item) => item.instanceName).filter(Boolean);
-      setN8nInstances(names);
+      setInstances(names);
       const nextInstance =
-        n8nInstanceName && names.includes(n8nInstanceName) ? n8nInstanceName : names[0] || null;
-      if (nextInstance !== n8nInstanceName) {
-        setN8nInstanceName(nextInstance);
+        instanceName && names.includes(instanceName) ? instanceName : names[0] || null;
+      if (nextInstance !== instanceName) {
+        setInstanceName(nextInstance);
         setPreferredInstance(nextInstance ? { name: nextInstance } : null);
       }
       if (activeTab === "agents" && names.length) {
-        loadAgents(names);
+        loadAgnoAgents(names);
       }
     } catch (err) {
       console.warn("Ошибка обновления инстансов", err);
-      setN8nInstances([]);
-      setN8nInstanceName(null);
+      setInstances([]);
+      setInstanceName(null);
     }
-  }, [activeTab, apiKey, loadAgents, n8nInstanceName]);
+  }, [activeTab, apiKey, loadAgnoAgents, instanceName]);
 
   const loadFunnels = useCallback(async (instanceName: string | null) => {
     if (!instanceName) {
@@ -375,22 +399,22 @@ export default function AIChatApp() {
 
   useEffect(() => {
     if (!apiKey) {
-      setN8nInstances([]);
-      setN8nInstanceName(null);
+      setInstances([]);
+      setInstanceName(null);
       return;
     }
     const preferred = readPreferredInstance()?.name || null;
     fetchInstances()
       .then((list) => {
         const names = list.map((item) => item.instanceName).filter(Boolean);
-        setN8nInstances(names);
+        setInstances(names);
         const fallback = preferred && names.includes(preferred) ? preferred : names[0] || null;
-        setN8nInstanceName(fallback);
+        setInstanceName(fallback);
         setPreferredInstance(fallback ? { name: fallback } : null);
       })
       .catch(() => {
-        setN8nInstances([]);
-        setN8nInstanceName(null);
+        setInstances([]);
+        setInstanceName(null);
       });
   }, [apiKey]);
 
@@ -417,6 +441,25 @@ export default function AIChatApp() {
   }, [apiKey, refreshInstances]);
 
   useEffect(() => {
+    const socket = getEvoSocket(apiKey);
+    if (!socket) return;
+
+    const handleSessionEvent = () => {
+      scheduleAgnoSessionsRefresh();
+    };
+
+    socket.on("messages.upsert", handleSessionEvent);
+    socket.on("messages.update", handleSessionEvent);
+    socket.on("chats.update", handleSessionEvent);
+
+    return () => {
+      socket.off("messages.upsert", handleSessionEvent);
+      socket.off("messages.update", handleSessionEvent);
+      socket.off("chats.update", handleSessionEvent);
+    };
+  }, [apiKey, scheduleAgnoSessionsRefresh]);
+
+  useEffect(() => {
     const handleFocus = () => {
       refreshInstances();
     };
@@ -429,8 +472,8 @@ export default function AIChatApp() {
       const detail = (event as CustomEvent<string | null>)?.detail ?? null;
       const nextKey = detail ?? getApiKey();
       setApiKeyState(nextKey);
-      setN8nInstances([]);
-      setN8nInstanceName(null);
+      setInstances([]);
+      setInstanceName(null);
       setPreferredInstance(null);
     };
     window.addEventListener("crafty:apikey-changed", handler as EventListener);
@@ -440,38 +483,121 @@ export default function AIChatApp() {
   }, []);
 
   useEffect(() => {
+    listCompanies()
+      .then((companies) => {
+        const stored = typeof window !== "undefined" ? localStorage.getItem(COMPANY_STORAGE) : null;
+        const active =
+          (stored && companies.find((company) => company.id === stored)) || companies[0] || null;
+        const ports = Array.isArray(active?.agnoPorts) ? active?.agnoPorts : [];
+        setCompanyPorts(ports);
+      })
+      .catch(() => {
+        setCompanyPorts([]);
+      });
+  }, []);
+
+  useEffect(() => {
+    const ports = Array.from(
+      new Set(
+        [defaultAgnoPort, ...companyPorts].filter(
+          (value): value is number => typeof value === "number" && value > 0
+        )
+      )
+    );
+    setAgnoCatalogLoading(true);
+    Promise.all(ports.map((port) => fetchAgnoAgentCatalog(port).catch(() => [])))
+      .then((lists) => {
+        const flattened = lists.flat();
+        setAgnoCatalog(flattened);
+        setAgnoCatalogError(null);
+      })
+      .catch((err) => {
+        setAgnoCatalog([]);
+        setAgnoCatalogError(err instanceof Error ? err.message : "Ошибка загрузки каталога");
+      })
+      .finally(() => {
+        setAgnoCatalogLoading(false);
+      });
+  }, [companyPorts, defaultAgnoPort]);
+
+  useEffect(() => {
+    if (!apiKey) return;
+    setLlmModelsLoading(true);
+    fetchLlmModels()
+      .then((data) => {
+        setLlmModels(Array.isArray(data) ? data : []);
+        setLlmModelsError(null);
+      })
+      .catch((err) => {
+        setLlmModels([]);
+        setLlmModelsError(err instanceof Error ? err.message : "Ошибка загрузки моделей");
+      })
+      .finally(() => setLlmModelsLoading(false));
+  }, [apiKey]);
+
+  useEffect(() => {
     if (activeTab !== "agents") return;
-    if (!n8nInstances.length) return;
-    loadAgents(n8nInstances);
-    if (n8nInstanceName) {
-      loadFunnels(n8nInstanceName);
+    if (!instances.length) return;
+    loadAgnoAgents(instances);
+    if (instanceName) {
+      loadFunnels(instanceName);
     }
-  }, [activeTab, n8nInstanceName, n8nInstances, loadFunnels]);
+  }, [activeTab, instanceName, instances, loadAgnoAgents, loadFunnels]);
 
   useEffect(() => {
     setSelectedFunnelId(null);
     setFunnelMode("idle");
     setFunnelForm(defaultFunnelForm);
     setFunnelError(null);
-  }, [n8nInstanceName]);
+  }, [instanceName]);
 
-  const handleSelectAgent = (agentId: string) => {
-    const found = n8nAgents.find((agent) => agent.id === agentId);
+  useEffect(() => {
+    if (agnoAgentMode !== "create") return;
+    if (agnoAgentForm.agentId || agnoAgentForm.webhookEnabled) return;
+    const firstId = agnoCatalog[0]?.id || "";
+    if (!firstId) return;
+    const firstPort = agnoCatalog[0]?.port;
+    setAgnoAgentForm((current) => ({
+      ...current,
+      agentId: firstId,
+      agnoPort: firstPort ? String(firstPort) : current.agnoPort
+    }));
+  }, [agnoAgentForm.agentId, agnoAgentMode, agnoCatalog]);
+
+  useEffect(() => {
+    if (agnoAgentMode !== "edit" || !selectedAgnoAgentId || !selectedAgnoAgentInstance) {
+      setAgnoSessions([]);
+      return;
+    }
+    loadAgnoSessions(selectedAgnoAgentInstance, selectedAgnoAgentId);
+  }, [agnoAgentMode, selectedAgnoAgentId, selectedAgnoAgentInstance, loadAgnoSessions]);
+
+  useEffect(() => {
+    return () => {
+      if (sessionsRefreshTimerRef.current) {
+        clearTimeout(sessionsRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleSelectAgnoAgent = (agentId: string) => {
+    const found = agnoAgents.find((agent) => agent.id === agentId);
     if (!found) return;
-    setSelectedAgentId(agentId);
-    setSelectedAgentInstance(found.instanceName || null);
-    setAgentMode("edit");
-    setAgentForm({
-      instanceName: found.instanceName || n8nInstanceName || "",
+    setSelectedAgnoAgentId(agentId);
+    setSelectedAgnoAgentInstance(found.instanceName || null);
+    setAgnoAgentMode("edit");
+    setAgnoAgentForm({
+      instanceName: found.instanceName || instanceName || "",
       enabled: found.enabled ?? true,
       description: found.description || "",
-      webhookUrl: found.webhookUrl || "",
-      useCustomWebhook: Boolean(found.webhookUrl),
-      basicAuthUser: found.basicAuthUser || "",
-      basicAuthPass: found.basicAuthPass || "",
       prompt: found.prompt || "",
-      triggerType: (found.triggerType as N8nForm["triggerType"]) || "all",
-      triggerOperator: (found.triggerOperator as N8nForm["triggerOperator"]) || "contains",
+      agentId: found.agentId || "",
+      webhookEnabled: Boolean(found.webhookUrl),
+      webhookUrl: found.webhookUrl || "",
+      providerModel: found.providerModel || "",
+      agnoPort: found.agnoPort !== undefined && found.agnoPort !== null ? String(found.agnoPort) : "",
+      triggerType: (found.triggerType as AgnoForm["triggerType"]) || "all",
+      triggerOperator: (found.triggerOperator as AgnoForm["triggerOperator"]) || "contains",
       triggerValue: found.triggerValue || "",
       funnelId: found.funnelId || "",
       expire: found.expire !== undefined && found.expire !== null ? String(found.expire) : "",
@@ -488,18 +614,25 @@ export default function AIChatApp() {
       splitMessages: found.splitMessages ?? false,
       timePerChar: found.timePerChar !== undefined && found.timePerChar !== null ? String(found.timePerChar) : ""
     });
-    setN8nError(null);
+    setAgnoError(null);
   };
 
-  const handleNewAgent = () => {
-    setSelectedAgentId(null);
-    setSelectedAgentInstance(null);
-    setAgentMode("create");
-    setAgentForm({
-      ...defaultAgentForm,
-      instanceName: n8nInstanceName || ""
+  const handleNewAgnoAgent = () => {
+    const preferredId = agnoCatalog[0]?.id || "";
+    const preferredPort = agnoCatalog[0]?.port || defaultAgnoPort || undefined;
+    setSelectedAgnoAgentId(null);
+    setSelectedAgnoAgentInstance(null);
+    setAgnoAgentMode("create");
+    setAgnoAgentForm({
+      ...defaultAgnoForm,
+      instanceName: instanceName || "",
+      agentId: preferredId,
+      webhookEnabled: false,
+      webhookUrl: "",
+      providerModel: "",
+      agnoPort: preferredPort ? String(preferredPort) : ""
     });
-    setN8nError(null);
+    setAgnoError(null);
   };
 
   const handleSelectFunnel = (funnelId: string) => {
@@ -566,7 +699,7 @@ export default function AIChatApp() {
   };
 
   const handleSaveFunnel = async () => {
-    if (!n8nInstanceName) return;
+    if (!instanceName) return;
     if (!funnelForm.name.trim()) {
       setFunnelError("Укажите название");
       return;
@@ -638,7 +771,7 @@ export default function AIChatApp() {
 
     try {
       if (funnelMode === "edit" && selectedFunnelId) {
-        await updateFunnel(n8nInstanceName, selectedFunnelId, {
+        await updateFunnel(instanceName, selectedFunnelId, {
           name: funnelForm.name.trim(),
           goal: funnelForm.goal.trim(),
           logic: funnelForm.logic.trim() || undefined,
@@ -647,7 +780,7 @@ export default function AIChatApp() {
           stages
         });
       } else {
-        const created = await createFunnel(n8nInstanceName, {
+        const created = await createFunnel(instanceName, {
           name: funnelForm.name.trim(),
           goal: funnelForm.goal.trim(),
           logic: funnelForm.logic.trim() || undefined,
@@ -660,7 +793,7 @@ export default function AIChatApp() {
           setFunnelMode("edit");
         }
       }
-      loadFunnels(n8nInstanceName);
+      loadFunnels(instanceName);
     } catch (err) {
       setFunnelError(err instanceof Error ? err.message : "Ошибка сохранения");
     } finally {
@@ -668,92 +801,107 @@ export default function AIChatApp() {
     }
   };
 
-  const handleSaveAgent = async () => {
-    if (!agentForm.instanceName) return;
-    setN8nSaving(true);
-    setN8nError(null);
+  const handleSaveAgnoAgent = async () => {
+    if (!agnoAgentForm.instanceName) return;
+    setAgnoSaving(true);
+    setAgnoError(null);
     const parseNumber = (value: string) => {
       const trimmed = value.trim();
       if (!trimmed) return undefined;
       const parsed = Number(trimmed);
       return Number.isNaN(parsed) ? undefined : parsed;
     };
-    const ignoreJids = agentForm.ignoreJids
+    const ignoreJids = agnoAgentForm.ignoreJids
       .split(",")
       .map((item) => toIgnoreJidValue(item))
       .filter(Boolean);
+    const agnoPort = parseNumber(agnoAgentForm.agnoPort);
     const payload: Record<string, unknown> = {
-      enabled: agentForm.enabled,
-      description: agentForm.description || undefined,
-      webhookUrl: agentForm.useCustomWebhook ? agentForm.webhookUrl : null,
-      basicAuthUser: agentForm.useCustomWebhook ? agentForm.basicAuthUser || undefined : undefined,
-      basicAuthPass: agentForm.useCustomWebhook ? agentForm.basicAuthPass || undefined : undefined,
-      prompt: agentForm.prompt || undefined,
-      triggerType: agentForm.triggerType,
-      triggerOperator: agentForm.triggerType === "keyword" ? agentForm.triggerOperator : undefined,
+      enabled: agnoAgentForm.enabled,
+      description: agnoAgentForm.description || undefined,
+      prompt: agnoAgentForm.prompt || undefined,
+      agentId: agnoAgentForm.agentId || undefined,
+      webhookUrl: agnoAgentForm.webhookEnabled ? agnoAgentForm.webhookUrl.trim() || null : null,
+      providerModel: agnoAgentForm.providerModel || null,
+      agnoPort: agnoPort ?? undefined,
+      triggerType: agnoAgentForm.triggerType,
+      triggerOperator: agnoAgentForm.triggerType === "keyword" ? agnoAgentForm.triggerOperator : undefined,
       triggerValue:
-        agentForm.triggerType === "keyword" || agentForm.triggerType === "advanced"
-          ? agentForm.triggerValue
+        agnoAgentForm.triggerType === "keyword" || agnoAgentForm.triggerType === "advanced"
+          ? agnoAgentForm.triggerValue
           : undefined,
-      funnelId: agentForm.funnelId || null,
-      expire: parseNumber(agentForm.expire),
-      keywordFinish: agentForm.keywordFinish || undefined,
-      delayMessage: parseNumber(agentForm.delayMessage),
-      unknownMessage: agentForm.unknownMessage || undefined,
-      listeningFromMe: agentForm.listeningFromMe,
-      stopBotFromMe: agentForm.stopBotFromMe,
-      keepOpen: agentForm.keepOpen,
-      debounceTime: parseNumber(agentForm.debounceTime),
+      funnelId: agnoAgentForm.funnelId || null,
+      expire: parseNumber(agnoAgentForm.expire),
+      keywordFinish: agnoAgentForm.keywordFinish || undefined,
+      delayMessage: parseNumber(agnoAgentForm.delayMessage),
+      unknownMessage: agnoAgentForm.unknownMessage || undefined,
+      listeningFromMe: agnoAgentForm.listeningFromMe,
+      stopBotFromMe: agnoAgentForm.stopBotFromMe,
+      keepOpen: agnoAgentForm.keepOpen,
+      debounceTime: parseNumber(agnoAgentForm.debounceTime),
       ignoreJids: ignoreJids.length ? ignoreJids : undefined,
-      splitMessages: agentForm.splitMessages,
-      timePerChar: parseNumber(agentForm.timePerChar)
+      splitMessages: agnoAgentForm.splitMessages,
+      timePerChar: parseNumber(agnoAgentForm.timePerChar)
     };
+    const currentAgent = agnoAgents.find(
+      (agent) =>
+        agent.id === selectedAgnoAgentId && agent.instanceName === selectedAgnoAgentInstance
+    );
+    const previousEnabled = Boolean(currentAgent?.enabled);
     try {
-      if (agentMode === "edit" && selectedAgentId) {
-        if (selectedAgentInstance && selectedAgentInstance !== agentForm.instanceName) {
-          const created = await createN8nBot(agentForm.instanceName, payload);
-          await deleteN8nBot(selectedAgentInstance, selectedAgentId);
+      if (agnoAgentMode === "edit" && selectedAgnoAgentId) {
+        if (selectedAgnoAgentInstance && selectedAgnoAgentInstance !== agnoAgentForm.instanceName) {
+          const created = await createAgnoBot(agnoAgentForm.instanceName, payload);
+          await deleteAgnoBot(selectedAgnoAgentInstance, selectedAgnoAgentId);
           if (created?.id) {
-            setSelectedAgentId(created.id);
-            setSelectedAgentInstance(agentForm.instanceName);
-            setAgentMode("edit");
+            setSelectedAgnoAgentId(created.id);
+            setSelectedAgnoAgentInstance(agnoAgentForm.instanceName);
+            setAgnoAgentMode("edit");
           } else {
-            setSelectedAgentId(null);
-            setSelectedAgentInstance(null);
-            setAgentMode("idle");
+            setSelectedAgnoAgentId(null);
+            setSelectedAgnoAgentInstance(null);
+            setAgnoAgentMode("idle");
           }
         } else {
-          await updateN8nBot(agentForm.instanceName, selectedAgentId, payload);
+          await updateAgnoBot(agnoAgentForm.instanceName, selectedAgnoAgentId, payload);
+          if (previousEnabled !== agnoAgentForm.enabled) {
+            await changeAgnoStatus(agnoAgentForm.instanceName, {
+              botId: selectedAgnoAgentId,
+              allSessions: true,
+              status: agnoAgentForm.enabled ? "opened" : "paused"
+            });
+            await loadAgnoSessions(agnoAgentForm.instanceName, selectedAgnoAgentId);
+          }
         }
       } else {
-        const created = await createN8nBot(agentForm.instanceName, payload);
+        const created = await createAgnoBot(agnoAgentForm.instanceName, payload);
         if (created?.id) {
-          setSelectedAgentId(created.id);
-          setSelectedAgentInstance(agentForm.instanceName);
-          setAgentMode("edit");
+          setSelectedAgnoAgentId(created.id);
+          setSelectedAgnoAgentInstance(agnoAgentForm.instanceName);
+          setAgnoAgentMode("edit");
         }
       }
-      loadAgents(n8nInstances);
+      loadAgnoAgents(instances);
     } catch (err) {
-      setN8nError(err instanceof Error ? err.message : "Ошибка сохранения");
+      setAgnoError(err instanceof Error ? err.message : "Ошибка сохранения");
     } finally {
-      setN8nSaving(false);
+      setAgnoSaving(false);
     }
   };
 
   const handleDeleteFunnel = async () => {
-    if (!n8nInstanceName || !selectedFunnelId) return;
+    if (!instanceName || !selectedFunnelId) return;
     if (!window.confirm("Удалить сценарий? Если она используется в follow-up, удаление будет заблокировано.")) {
       return;
     }
     setFunnelDeleting(true);
     setFunnelError(null);
     try {
-      await deleteFunnel(n8nInstanceName, selectedFunnelId);
+      await deleteFunnel(instanceName, selectedFunnelId);
       setSelectedFunnelId(null);
       setFunnelMode("idle");
       setFunnelForm(defaultFunnelForm);
-      loadFunnels(n8nInstanceName);
+      loadFunnels(instanceName);
     } catch (err) {
       setFunnelError(err instanceof Error ? err.message : "Ошибка удаления");
     } finally {
@@ -761,19 +909,51 @@ export default function AIChatApp() {
     }
   };
 
-  const handleDeleteAgent = async () => {
-    if (!selectedAgentInstance || !selectedAgentId) return;
-    const ok = window.confirm("Удалить агента n8n?");
+  const handleDeleteAgnoAgent = async () => {
+    if (!selectedAgnoAgentInstance || !selectedAgnoAgentId) return;
+    const ok = window.confirm("Удалить агента?");
     if (!ok) return;
     try {
-      await deleteN8nBot(selectedAgentInstance, selectedAgentId);
-      setSelectedAgentId(null);
-      setSelectedAgentInstance(null);
-      setAgentMode("idle");
-      setAgentForm(defaultAgentForm);
-      loadAgents(n8nInstances);
+      await deleteAgnoBot(selectedAgnoAgentInstance, selectedAgnoAgentId);
+      setSelectedAgnoAgentId(null);
+      setSelectedAgnoAgentInstance(null);
+      setAgnoAgentMode("idle");
+      setAgnoAgentForm(defaultAgnoForm);
+      loadAgnoAgents(instances);
     } catch (err) {
-      setN8nError(err instanceof Error ? err.message : "Не удалось удалить");
+      setAgnoError(err instanceof Error ? err.message : "Не удалось удалить");
+    }
+  };
+
+  const canManageFunnel = agnoAgentMode === "edit" && Boolean(selectedAgnoAgentId);
+  const sessionSummary = (() => {
+    if (!agnoSessions.length) return "empty";
+    const opened = agnoSessions.filter((session) => session.status === "opened").length;
+    if (opened === agnoSessions.length) return "on";
+    if (opened === 0) return "off";
+    return "mixed";
+  })();
+
+  const handleToggleAllSessions = async (next: "on" | "off") => {
+    if (!selectedAgnoAgentInstance || !selectedAgnoAgentId) return;
+    setAgnoSessionsError(null);
+    setAgnoSessionsLoading(true);
+    try {
+      await changeAgnoStatus(selectedAgnoAgentInstance, {
+        botId: selectedAgnoAgentId,
+        allSessions: true,
+        status: next === "on" ? "opened" : "paused"
+      });
+      setAgnoAgentForm((current) => ({
+        ...current,
+        enabled: next === "on"
+      }));
+      await loadAgnoSessions(selectedAgnoAgentInstance, selectedAgnoAgentId);
+      loadAgnoAgents(instances);
+    } catch (err) {
+      setAgnoSessionsError(err instanceof Error ? err.message : "Не удалось обновить сессии");
+    } finally {
+      setAgnoSessionsLoading(false);
     }
   };
 
@@ -817,11 +997,11 @@ export default function AIChatApp() {
             onSelectChat={handleSelectChat}
             activeTab={activeTab}
             onTabChange={setActiveTab}
-            agents={n8nAgents}
-            selectedAgentId={selectedAgentId}
-            onSelectAgent={handleSelectAgent}
-            onNewAgent={handleNewAgent}
-            agentsLoading={n8nLoading}
+            agents={agnoAgents}
+            selectedAgentId={selectedAgnoAgentId}
+            onSelectAgent={handleSelectAgnoAgent}
+            onNewAgent={handleNewAgnoAgent}
+            agentsLoading={agnoLoading}
           />
           <div className="flex min-h-0 flex-1 flex-col">
             <TabsContent value="playground" className="flex min-h-0 flex-1 flex-col">
@@ -838,17 +1018,17 @@ export default function AIChatApp() {
               )}
             </TabsContent>
             <TabsContent value="agents" className="flex min-h-0 flex-1 flex-col">
-              <N8nAgents
-                instanceName={n8nInstanceName}
-                instances={n8nInstances}
-                agentMode={agentMode}
-                form={agentForm}
-                onFormChange={(next) => setAgentForm(next)}
-                onSave={handleSaveAgent}
-                onDelete={handleDeleteAgent}
-                saving={n8nSaving}
-                error={n8nError}
-                onNewAgent={handleNewAgent}
+              <AgnoAgents
+                instanceName={instanceName}
+                instances={instances}
+                agentMode={agnoAgentMode}
+                form={agnoAgentForm}
+                onFormChange={(next) => setAgnoAgentForm(next)}
+                onSave={handleSaveAgnoAgent}
+                onDelete={handleDeleteAgnoAgent}
+                saving={agnoSaving}
+                error={agnoError}
+                onNewAgent={handleNewAgnoAgent}
                 funnels={funnels}
                 funnelMode={funnelMode}
                 funnelForm={funnelForm}
@@ -862,7 +1042,21 @@ export default function AIChatApp() {
                 selectedFunnelId={selectedFunnelId}
                 onSelectFunnel={handleSelectFunnel}
                 onNewFunnel={handleNewFunnel}
-                canManageFunnel={agentMode === "edit" && Boolean(selectedAgentId)}
+                canManageFunnel={canManageFunnel}
+                selectedAgentId={selectedAgnoAgentId}
+                selectedAgentInstance={selectedAgnoAgentInstance}
+                agentCatalog={agnoCatalog}
+                agentCatalogLoading={agnoCatalogLoading}
+                agentCatalogError={agnoCatalogError}
+                llmModels={llmModels}
+                llmModelsLoading={llmModelsLoading}
+                llmModelsError={llmModelsError}
+                defaultPort={defaultAgnoPort}
+                sessionState={sessionSummary}
+                sessionCount={agnoSessions.length}
+                sessionLoading={agnoSessionsLoading}
+                sessionError={agnoSessionsError}
+                onSessionStateChange={handleToggleAllSessions}
               />
             </TabsContent>
           </div>

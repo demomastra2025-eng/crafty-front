@@ -32,7 +32,7 @@ interface UserProfileProps {
 const labelColorClass = (color?: string | null) => {
   switch ((color || "").trim()) {
     case "1":
-      return "bg-blue-100 text-blue-800";
+      return "bg-muted text-foreground";
     case "2":
       return "bg-green-100 text-green-800";
     case "3":

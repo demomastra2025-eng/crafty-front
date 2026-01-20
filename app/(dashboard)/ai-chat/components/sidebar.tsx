@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Star, Archive, Search, MessageCircle, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Chat {
   id: string;
@@ -27,7 +27,8 @@ interface SidebarProps {
   agents?: Array<{
     id: string;
     description?: string;
-    webhookUrl?: string;
+    webhookUrl?: string | null;
+    agentId?: string;
     enabled?: boolean;
     triggerType?: string;
     instanceName?: string | null;
@@ -74,29 +75,29 @@ export function Sidebar({
   });
 
   const filteredAgents = (agents || []).filter((agent) => {
-    const title = agent.description || agent.webhookUrl || "";
+    const title = agent.description || agent.agentId || agent.webhookUrl || "";
     return title.toLowerCase().includes(agentQuery.toLowerCase());
   });
 
   return (
     <div className="flex h-full w-80 flex-col overflow-hidden bg-gray-50">
       <div className="border-b border-gray-200 p-4">
-        <TabsList className="w-full">
-          <TabsTrigger
-            value="playground"
+        <ButtonGroup className="w-full">
+          <Button
+            variant={activeTab === "playground" ? "secondary" : "outline"}
             onClick={() => onTabChange("playground")}
             className="flex-1"
           >
             Playground
-          </TabsTrigger>
-          <TabsTrigger
-            value="agents"
+          </Button>
+          <Button
+            variant={activeTab === "agents" ? "secondary" : "outline"}
             onClick={() => onTabChange("agents")}
             className="flex-1"
           >
             Агенты
-          </TabsTrigger>
-        </TabsList>
+          </Button>
+        </ButtonGroup>
       </div>
 
       {activeTab === "playground" ? (
@@ -236,7 +237,7 @@ export function Sidebar({
                       <Bot className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-gray-900">
-                          {agent.description || agent.webhookUrl || "Без названия"}
+                          {agent.description || agent.agentId || agent.webhookUrl || "Без названия"}
                         </div>
                         <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500">
                           <span>{agent.triggerType || "—"}</span>

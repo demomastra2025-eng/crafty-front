@@ -79,16 +79,36 @@ export async function fetchMe() {
 }
 
 export async function listCompanies() {
-  return jsonRequest<Array<{ id: string; name: string; role: string }>>("/api/evo/companies", {
+  return jsonRequest<Array<{ id: string; name: string; role: string; agnoPorts?: number[] }>>(
+    "/api/evo/companies",
+    {
     headers: authHeaders()
-  });
+    }
+  );
 }
 
 export async function createCompany(payload: { name: string }) {
-  return jsonRequest<{ id: string; name: string; createdAt?: string | null; primaryKey?: string }>(
+  return jsonRequest<{
+    id: string;
+    name: string;
+    createdAt?: string | null;
+    primaryKey?: string;
+    agnoPorts?: number[];
+  }>(
     "/api/evo/companies",
     {
       method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function updateCompany(companyId: string, payload: { agnoPorts?: number[] }) {
+  return jsonRequest<{ id: string; name: string; agnoPorts?: number[]; createdAt?: string | null }>(
+    `/api/evo/companies/${companyId}`,
+    {
+      method: "PATCH",
       headers: authHeaders(),
       body: JSON.stringify(payload)
     }
@@ -104,6 +124,51 @@ export async function rotatePrimaryKey(companyId: string) {
 
 export async function getPrimaryKey(companyId: string) {
   return jsonRequest<{ apiKey: string }>(`/api/evo/companies/${companyId}/primary-key`, {
+    headers: authHeaders()
+  });
+}
+
+export type CredentialItem = {
+  id: string;
+  name: string | null;
+  provider: string;
+  url?: string | null;
+  apiKey?: string | null;
+  createdAt?: string | null;
+};
+
+export async function listCredentials(companyId: string) {
+  return jsonRequest<CredentialItem[]>(`/api/evo/companies/${companyId}/credentials`, {
+    headers: authHeaders()
+  });
+}
+
+export async function createCredential(
+  companyId: string,
+  payload: { name: string; provider: string; apiKey: string; url?: string }
+) {
+  return jsonRequest<CredentialItem>(`/api/evo/companies/${companyId}/credentials`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateCredential(
+  companyId: string,
+  credentialId: string,
+  payload: { name?: string; provider?: string; apiKey?: string; url?: string }
+) {
+  return jsonRequest<CredentialItem>(`/api/evo/companies/${companyId}/credentials/${credentialId}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteCredential(companyId: string, credentialId: string) {
+  return jsonRequest<{ id: string }>(`/api/evo/companies/${companyId}/credentials/${credentialId}`, {
+    method: "DELETE",
     headers: authHeaders()
   });
 }

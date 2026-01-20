@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   ArrowUpRight,
   BarChart3,
@@ -63,22 +64,19 @@ const quickPlatforms = [
     id: "whatsapp",
     label: "WhatsApp Evolution",
     hint: "Baileys / Cloud",
-    icon: MessageCircle,
-    tone: "bg-emerald-50 text-emerald-700 border-emerald-100"
+    icon: MessageCircle
   },
   {
     id: "instagram",
     label: "Instagram",
     hint: "DM + истории",
-    icon: Instagram,
-    tone: "bg-pink-50 text-pink-700 border-pink-100"
+    icon: Instagram
   },
   {
     id: "telegram",
     label: "Telegram",
     hint: "Бот / канал",
-    icon: Send,
-    tone: "bg-sky-50 text-sky-700 border-sky-100"
+    icon: Send
   }
 ] as const;
 
@@ -132,6 +130,7 @@ type SettingsForm = {
   readMessages: boolean;
   readStatus: boolean;
   syncFullHistory: boolean;
+  mediaRecognition: boolean;
   wavoipToken: string;
 };
 
@@ -171,6 +170,7 @@ const defaultSettings: SettingsForm = {
   readMessages: false,
   readStatus: false,
   syncFullHistory: false,
+  mediaRecognition: false,
   wavoipToken: ""
 };
 
@@ -687,9 +687,9 @@ export default function ConnectorsView() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-muted/30 to-background p-6 sm:p-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-gray-200 bg-white px-6 py-4">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold">Коннекты мессенджеров</h1>
             <p className="text-sm text-muted-foreground">
@@ -703,163 +703,161 @@ export default function ConnectorsView() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wifi className="h-4 w-4" />}
             Обновить статусы
           </Button>
-        </header>
-
-        {showApiKeyAlert ? (
-          <Alert variant="destructive">
-            <AlertTitle>Нет API-ключа</AlertTitle>
-            <AlertDescription>
-              <p>Добавьте ключ в Settings → Access, чтобы создавать инстансы.</p>
-              <Button asChild size="sm" className="mt-2">
-                <Link href="/settings">Открыть Settings</Link>
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : showInstancesAlert ? (
-          <Alert>
-            <AlertTitle>Инстансы не найдены</AlertTitle>
-            <AlertDescription>
-              <p>Создайте первый инстанс и подключите WhatsApp.</p>
-              <Button size="sm" className="mt-2" onClick={() => setCreateOpen(true)}>
-                Создать инстанс
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                Активных коннектов
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              </div>
-              <div className="text-3xl font-semibold">{activeCount}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                Ожидают подключения
-                <Clock3 className="h-4 w-4 text-amber-500" />
-              </div>
-              <div className="text-3xl font-semibold">{draftCount}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                Текущая сессия
-                <Users2 className="h-4 w-4 text-blue-500" />
-              </div>
-              <div className="text-3xl font-semibold">{currentSession}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                SLA ответов
-                <BarChart3 className="h-4 w-4 text-purple-500" />
-              </div>
-              <div className="text-3xl font-semibold">7 сек</div>
-            </CardContent>
-          </Card>
         </div>
+      </div>
+      <ScrollArea className="flex min-h-0 flex-1">
+        <div className="mx-auto w-full max-w-5xl space-y-6 p-6">
+          {showApiKeyAlert ? (
+            <Alert variant="destructive">
+              <AlertTitle>Нет API-ключа</AlertTitle>
+              <AlertDescription>
+                <p>Добавьте ключ в Settings → Access, чтобы создавать инстансы.</p>
+                <Button asChild size="sm" className="mt-2">
+                  <Link href="/settings">Открыть Settings</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : showInstancesAlert ? (
+            <Alert>
+              <AlertTitle>Инстансы не найдены</AlertTitle>
+              <AlertDescription>
+                <p>Создайте первый инстанс и подключите WhatsApp.</p>
+                <Button size="sm" className="mt-2" onClick={() => setCreateOpen(true)}>
+                  Создать инстанс
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
-        <Card>
-          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1.5">
-              <CardTitle>Подключись в мессенджеры</CardTitle>
-              <CardDescription>Выберите канал и закрепите его за проектом или пайплайном.</CardDescription>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input placeholder="Поиск проектов или каналов" className="w-full sm:w-72" />
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
-            {quickPlatforms.map((platform) => (
-              <button
-                key={platform.id}
-                onClick={platform.id === "whatsapp" ? () => setCreateOpen(true) : undefined}
-                className={`flex h-full flex-col justify-between rounded-xl border shadow-sm ${platform.tone} p-4 text-left transition hover:-translate-y-0.5 hover:shadow-lg ${
-                  platform.id === "whatsapp" ? "cursor-pointer" : "cursor-not-allowed opacity-70"
-                }`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/70 text-base">
-                      <platform.icon className="h-5 w-5" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold">{platform.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {platform.id === "whatsapp" ? platform.hint : "Доступно скоро"}
-                      </p>
-                    </div>
-                  </div>
-                  <ArrowUpRight className="h-4 w-4" />
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  Активных коннектов
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                 </div>
-                <div className="mt-3 rounded-lg bg-white/70 p-2 text-xs text-muted-foreground">
-                  {platform.id === "whatsapp"
-                    ? "Создайте инстанс, получите QR и подключите канал."
-                    : "Недоступно"}
+                <div className="text-3xl font-semibold">{activeCount}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  Ожидают подключения
+                  <Clock3 className="h-4 w-4 text-amber-500" />
                 </div>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
+                <div className="text-3xl font-semibold">{draftCount}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  Текущая сессия
+                  <Users2 className="h-4 w-4 text-blue-500" />
+                </div>
+                <div className="text-3xl font-semibold">{currentSession}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  SLA ответов
+                  <BarChart3 className="h-4 w-4 text-purple-500" />
+                </div>
+                <div className="text-3xl font-semibold">7 сек</div>
+              </CardContent>
+            </Card>
+          </div>
 
-        <Card>
-          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-1.5">
-              <CardTitle>Текущие коннекты</CardTitle>
-              <CardDescription>Статусы, токены и действия по каждому каналу.</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-3 lg:grid-cols-3">
-            {connectors.map((connector) => (
-              <Card
-                key={connector.id}
-                className="border-muted/60 bg-gradient-to-br from-white/70 via-background to-muted/40 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md py-2">
-                <CardContent className="space-y-1 p-4 pt-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary" className="gap-1">
-                          <MessageCircle className="h-4 w-4" />
-                          WhatsApp
-                        </Badge>
-                        <Badge className={statusTone(connector.connectionStatus)}>
-                          {statusLabel(connector.connectionStatus)}
-                        </Badge>
-                      </div>
+          <Card>
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1.5">
+                <CardTitle>Подключись в мессенджеры</CardTitle>
+                <CardDescription>Выберите канал и закрепите его за проектом или пайплайном.</CardDescription>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input placeholder="Поиск проектов или каналов" className="w-full sm:w-72" />
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-3">
+              {quickPlatforms.map((platform) => (
+                <button
+                  key={platform.id}
+                  onClick={platform.id === "whatsapp" ? () => setCreateOpen(true) : undefined}
+                  className={`flex h-full flex-col justify-between rounded-xl border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                    platform.id === "whatsapp" ? "cursor-pointer" : "cursor-not-allowed opacity-70"
+                  }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/40 text-base">
+                        <platform.icon className="h-5 w-5 text-gray-700" />
+                      </span>
                       <div>
-                        <p className="text-lg font-semibold tracking-tight">{connector.instanceName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {connector.number ? `+${connector.number}` : connector.ownerJid || "—"}
+                        <p className="text-sm font-semibold">{platform.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {platform.id === "whatsapp" ? platform.hint : "Доступно скоро"}
                         </p>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Обновлено:{" "}
-                          {connector.updatedAt
-                          ? formatDateTimeWithTz(connector.updatedAt)
-                          : "—"}
-                      </p>
                     </div>
-                    {connector.connectionStatus === "connecting" ? (
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="h-9 w-9"
-                        onClick={() => handleAction(connector.instanceName, "connect")}
-                        disabled={actionId === connector.instanceName}>
-                        {actionId === connector.instanceName ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <QrCode className="h-4 w-4" />
-                        )}
-                      </Button>
-                    ) : null}
+                    <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
                   </div>
+                  <div className="mt-3 rounded-lg bg-muted/30 p-2 text-xs text-muted-foreground">
+                    {platform.id === "whatsapp"
+                      ? "Создайте инстанс, получите QR и подключите канал."
+                      : "Недоступно"}
+                  </div>
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1.5">
+                <CardTitle>Текущие коннекты</CardTitle>
+                <CardDescription>Статусы, токены и действия по каждому каналу.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 lg:grid-cols-3">
+              {connectors.map((connector) => (
+                <Card key={connector.id} className="shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                  <CardContent className="space-y-1 p-4 pt-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="secondary" className="gap-1">
+                            <MessageCircle className="h-4 w-4" />
+                            WhatsApp
+                          </Badge>
+                          <Badge className={statusTone(connector.connectionStatus)}>
+                            {statusLabel(connector.connectionStatus)}
+                          </Badge>
+                        </div>
+                        <div>
+                          <p className="text-lg font-semibold tracking-tight">{connector.instanceName}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {connector.number ? `+${connector.number}` : connector.ownerJid || "—"}
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Обновлено:{" "}
+                          {connector.updatedAt ? formatDateTimeWithTz(connector.updatedAt) : "—"}
+                        </p>
+                      </div>
+                      {connector.connectionStatus === "connecting" ? (
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-9 w-9"
+                          onClick={() => handleAction(connector.instanceName, "connect")}
+                          disabled={actionId === connector.instanceName}>
+                          {actionId === connector.instanceName ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <QrCode className="h-4 w-4" />
+                          )}
+                        </Button>
+                      ) : null}
+                    </div>
 
                   <div className="grid grid-cols-3 gap-2 rounded-lg border border-muted/60 bg-muted/40 p-3 text-center text-xs">
                     <div className="flex flex-col items-center gap-1">
@@ -947,17 +945,18 @@ export default function ConnectorsView() {
                     disabled={currentSession === connector.instanceName}>
                     {currentSession === connector.instanceName ? "Текущая сессия" : "Выбрать"}
                   </Button>
-                </CardContent>
-              </Card>
-            ))}
-            {connectors.length === 0 && (
-              <div className="col-span-3 flex items-center justify-center text-sm text-muted-foreground">
-                {loading ? "Загружаем коннекты…" : "Нет доступных коннектов"}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {connectors.length === 0 && (
+                <div className="col-span-3 flex items-center justify-center text-sm text-muted-foreground">
+                  {loading ? "Загружаем коннекты…" : "Нет доступных коннектов"}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </ScrollArea>
       <Dialog
         open={Boolean(qrData)}
         onOpenChange={(open) => {
@@ -1080,6 +1079,15 @@ export default function ConnectorsView() {
                   }
                 />
               </label>
+              <label className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                Распознавание медиа
+                <Switch
+                  checked={createSettings.mediaRecognition}
+                  onCheckedChange={(checked) =>
+                    setCreateSettings((prev) => ({ ...prev, mediaRecognition: checked }))
+                  }
+                />
+              </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -1184,6 +1192,15 @@ export default function ConnectorsView() {
                     checked={settingsForm.syncFullHistory}
                     onCheckedChange={(checked) =>
                       setSettingsForm((prev) => ({ ...prev, syncFullHistory: checked }))
+                    }
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                  Распознавание медиа
+                  <Switch
+                    checked={settingsForm.mediaRecognition}
+                    onCheckedChange={(checked) =>
+                      setSettingsForm((prev) => ({ ...prev, mediaRecognition: checked }))
                     }
                   />
                 </label>

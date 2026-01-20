@@ -56,7 +56,6 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\r\n    // instance\r\n    \"instanceName\": \"{{instance}}\",\r\n    // \"token\": \"{{apikey}}\", // (Optional)\r\n    // \"number\": \"{{number}}\", // (Optional)\r\n    \"qrcode\": true, // (Optional)\r\n    \"integration\": \"WHATSAPP-BAILEYS\" // WHATSAPP-BAILEYS | WHATSAPP-BUSINESS | EVOLUTION (Default WHATSAPP-BAILEYS) \r\n    // settings (Optional)\r\n    // \"rejectCall\": false,\r\n    // \"msgCall\": \"\",\r\n    // \"groupsIgnore\": false,\r\n    // \"alwaysOnline\": false,\r\n    // \"readMessages\": false,\r\n    // \"readStatus\": false,\r\n    // \"syncFullHistory\": false,\r\n    // // proxy (Optional)\r\n    // \"proxyHost\": \"\",\r\n    // \"proxyPort\": \"\",\r\n    // \"proxyProtocol\": \"\",\r\n    // \"proxyUsername\": \"\",\r\n    // \"proxyPassword\": \"\",\r\n    // webhook (Optional)\r\n    // \"webhook\": {\r\n    //     \"url\": \"\",\r\n    //     \"byEvents\": false,\r\n    //     \"base64\": true,\r\n    //     \"headers\": {\r\n    //         \"autorization\": \"Bearer TOKEN\",\r\n    //         \"Content-Type\": \"application/json\"\r\n    //     },\r\n    //     \"events\": [\r\n    //         \"APPLICATION_STARTUP\",\r\n    //         \"QRCODE_UPDATED\",\r\n    //         \"MESSAGES_SET\",\r\n    //         \"MESSAGES_UPSERT\",\r\n    //         \"MESSAGES_UPDATE\",\r\n    //         \"MESSAGES_DELETE\",\r\n    //         \"SEND_MESSAGE\",\r\n    //         \"CONTACTS_SET\",\r\n    //         \"CONTACTS_UPSERT\",\r\n    //         \"CONTACTS_UPDATE\",\r\n    //         \"PRESENCE_UPDATE\",\r\n    //         \"CHATS_SET\",\r\n    //         \"CHATS_UPSERT\",\r\n    //         \"CHATS_UPDATE\",\r\n    //         \"CHATS_DELETE\",\r\n    //         \"GROUPS_UPSERT\",\r\n    //         \"GROUP_UPDATE\",\r\n    //         \"GROUP_PARTICIPANTS_UPDATE\",\r\n    //         \"CONNECTION_UPDATE\",\r\n    //         \"LABELS_EDIT\",\r\n    //         \"LABELS_ASSOCIATION\",\r\n    //         \"CALL\",\r\n    //         \"TYPEBOT_START\",\r\n    //         \"TYPEBOT_CHANGE_STATUS\"\r\n    //     ]\r\n    // },\r\n    // // rabbitmq (Optional)\r\n    // \"rabbitmq\": {\r\n    //     \"enabled\": true,\r\n    //     \"events\": [\r\n    //         \"APPLICATION_STARTUP\",\r\n    //         \"QRCODE_UPDATED\",\r\n    //         \"MESSAGES_SET\",\r\n    //         \"MESSAGES_UPSERT\",\r\n    //         \"MESSAGES_UPDATE\",\r\n    //         \"MESSAGES_DELETE\",\r\n    //         \"SEND_MESSAGE\",\r\n    //         \"CONTACTS_SET\",\r\n    //         \"CONTACTS_UPSERT\",\r\n    //         \"CONTACTS_UPDATE\",\r\n    //         \"PRESENCE_UPDATE\",\r\n    //         \"CHATS_SET\",\r\n    //         \"CHATS_UPSERT\",\r\n    //         \"CHATS_UPDATE\",\r\n    //         \"CHATS_DELETE\",\r\n    //         \"GROUPS_UPSERT\",\r\n    //         \"GROUP_UPDATE\",\r\n    //         \"GROUP_PARTICIPANTS_UPDATE\",\r\n    //         \"CONNECTION_UPDATE\",\r\n    //         \"LABELS_EDIT\",\r\n    //         \"LABELS_ASSOCIATION\",\r\n    //         \"CALL\",\r\n    //         \"TYPEBOT_START\",\r\n    //         \"TYPEBOT_CHANGE_STATUS\"\r\n    //     ]\r\n    // },\r\n    // // sqs (Optional)\r\n    // \"sqs\": {\r\n    //     \"enabled\": true,\r\n    //     \"events\": [\r\n    //         \"APPLICATION_STARTUP\",\r\n    //         \"QRCODE_UPDATED\",\r\n    //         \"MESSAGES_SET\",\r\n    //         \"MESSAGES_UPSERT\",\r\n    //         \"MESSAGES_UPDATE\",\r\n    //         \"MESSAGES_DELETE\",\r\n    //         \"SEND_MESSAGE\",\r\n    //         \"CONTACTS_SET\",\r\n    //         \"CONTACTS_UPSERT\",\r\n    //         \"CONTACTS_UPDATE\",\r\n    //         \"PRESENCE_UPDATE\",\r\n    //         \"CHATS_SET\",\r\n    //         \"CHATS_UPSERT\",\r\n    //         \"CHATS_UPDATE\",\r\n    //         \"CHATS_DELETE\",\r\n    //         \"GROUPS_UPSERT\",\r\n    //         \"GROUP_UPDATE\",\r\n    //         \"GROUP_PARTICIPANTS_UPDATE\",\r\n    //         \"CONNECTION_UPDATE\",\r\n    //         \"LABELS_EDIT\",\r\n    //         \"LABELS_ASSOCIATION\",\r\n    //         \"CALL\",\r\n    //         \"TYPEBOT_START\",\r\n    //         \"TYPEBOT_CHANGE_STATUS\"\r\n    //     ]\r\n    // },\r\n    // // chatwoot (Optional)\r\n    // \"chatwootAccountId\": \"1\",\r\n    // \"chatwootToken\": \"TOKEN\",\r\n    // \"chatwootUrl\": \"https://chatoot.com\",\r\n    // \"chatwootSignMsg\": true,\r\n    // \"chatwootReopenConversation\": true,\r\n    // \"chatwootConversationPending\": false,\r\n    // \"chatwootImportContacts\": true,\r\n    // \"chatwootNameInbox\": \"evolution\",\r\n    // \"chatwootMergeBrazilContacts\": true,\r\n    // \"chatwootImportMessages\": true,\r\n    // \"chatwootDaysLimitImportMessages\": 3,\r\n    // \"chatwootOrganization\": \"Evolution Bot\",\r\n    // \"chatwootLogo\": \"https://evolution-api.com/files/evolution-api-favicon.png\",\r\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -2293,16 +2292,13 @@
 					"name": "Chatbot",
 					"item": [
 						{
-							"name": "Chatwoot",
 							"item": [
 								{
-									"name": "Set Chatwoot",
 									"request": {
 										"method": "POST",
 										"header": [],
 										"body": {
 											"mode": "raw",
-											"raw": "{\r\n\t\"enabled\": true,\r\n\t\"accountId\": \"1\",\r\n    \"token\": \"TOKEN\",\r\n    \"url\": \"https://chatwoot.com\",\r\n    \"signMsg\": true,\r\n    \"reopenConversation\": true,\r\n    \"conversationPending\": false,\r\n    \"nameInbox\": \"evolution\",\r\n    \"mergeBrazilContacts\": true,\r\n    \"importContacts\": true,\r\n    \"importMessages\": true,\r\n    \"daysLimitImportMessages\": 2,\r\n    \"signDelimiter\": \"\\n\",\r\n    \"autoCreate\": true,\r\n    \"organization\": \"BOT\",\r\n    \"logo\": \"link da sua\",\r\n    \"ignoreJids\": [\r\n        \"@g.us\"\r\n    ]\r\n}",
 											"options": {
 												"raw": {
 													"language": "json"
@@ -2310,12 +2306,10 @@
 											}
 										},
 										"url": {
-											"raw": "{{baseUrl}}/chatwoot/set/{{instance}}",
 											"host": [
 												"{{baseUrl}}"
 											],
 											"path": [
-												"chatwoot",
 												"set",
 												"{{instance}}"
 											]
@@ -2324,17 +2318,14 @@
 									"response": []
 								},
 								{
-									"name": "Find Chatwoot",
 									"request": {
 										"method": "GET",
 										"header": [],
 										"url": {
-											"raw": "{{baseUrl}}/chatwoot/find/{{instance}}",
 											"host": [
 												"{{baseUrl}}"
 											],
 											"path": [
-												"chatwoot",
 												"find",
 												"{{instance}}"
 											]

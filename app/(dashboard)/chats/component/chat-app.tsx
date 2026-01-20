@@ -18,9 +18,9 @@ import { ConversationList } from "@/app/(dashboard)/chats/component/conversation
 import { ChatArea } from "@/app/(dashboard)/chats/component/chat-area";
 import { UserProfile } from "@/app/(dashboard)/chats/component/user-profile";
 import {
-  changeN8nStatus,
-  emitN8nLastMessage,
-  fetchN8nSessions,
+  changeAgnoStatus,
+  emitAgnoLastMessage,
+  fetchAgnoSessions,
   sendTextMessage,
   resolveInstance,
   handleLabel,
@@ -85,6 +85,7 @@ type MessageRow = {
   pushName?: string | null;
   status?: string | null;
   source?: string | null;
+  author?: string | null;
   chatId?: string | null;
   labels?: string | null;
   instanceId?: string | null;
@@ -136,6 +137,7 @@ type Message = {
   timestamp: string;
   timestampMs?: number;
   source?: string;
+  author?: string;
   isOwn: boolean;
   status?: string;
   keyId?: string;
@@ -152,7 +154,7 @@ type IntegrationSessionRow = {
   type?: string | null;
 };
 
-type N8nSessionRow = {
+type BotSessionRow = {
   id: string;
   remoteJid: string;
   status: "opened" | "paused" | "closed";
@@ -396,7 +398,7 @@ export default function ChatApp() {
   const { toast } = useToast();
   const [apiKey, setApiKeyState] = useState<string | null>(() => getApiKey());
   const [botMeta, setBotMeta] = useState<IntegrationSessionRow | null>(null);
-  const [botSession, setBotSession] = useState<N8nSessionRow | null>(null);
+  const [botSession, setBotSession] = useState<BotSessionRow | null>(null);
   const [botSessionId, setBotSessionId] = useState<string | null>(null);
   const [botTogglePending, setBotTogglePending] = useState(false);
   const selectedConversationRef = useRef<Conversation | null>(null);
@@ -897,7 +899,8 @@ export default function ChatApp() {
       try {
         const { session } = await fetchIntegrationSession(botSessionId);
         if (!cancelled) {
-          setBotMeta((session as IntegrationSessionRow | null) || null);
+          const next = (session as IntegrationSessionRow | null) || null;
+          setBotMeta(next && next.type === "agno" ? next : null);
         }
       } catch (err) {
         console.warn("Ошибка загрузки сессии бота:", err);
@@ -916,28 +919,29 @@ export default function ChatApp() {
     const instId = selectedConversation?.instanceId;
     const instName = instId ? instanceNames[instId] : null;
     const botId = botMeta?.botId || null;
-    if (!remoteJid || !instName || !botId) {
+    const botType = botMeta?.type || null;
+    if (!remoteJid || !instName || !botId || botType !== "agno") {
       setBotSession(null);
       return;
     }
 
     let cancelled = false;
-    const loadN8nSession = async () => {
+    const loadBotSession = async () => {
       try {
-        const sessions = (await fetchN8nSessions(instName, botId, remoteJid)) as N8nSessionRow[];
+        const sessions = (await fetchAgnoSessions(instName, botId, remoteJid)) as BotSessionRow[];
         const match = sessions.find((s) => s.remoteJid === remoteJid) || null;
         if (!cancelled) setBotSession(match);
       } catch (err) {
-        console.warn("Ошибка загрузки статуса n8n:", err);
+        console.warn("Ошибка загрузки статуса бота:", err);
         if (!cancelled) setBotSession(null);
       }
     };
 
-    loadN8nSession();
+    loadBotSession();
     return () => {
       cancelled = true;
     };
-  }, [botMeta?.botId, instanceNames, selectedConversation?.instanceId, selectedConversation?.remoteJid]);
+  }, [botMeta?.botId, botMeta?.type, instanceNames, selectedConversation?.instanceId, selectedConversation?.remoteJid]);
 
   useEffect(() => {
     const socket = getEvoSocket(apiKey);
@@ -1071,6 +1075,7 @@ export default function ChatApp() {
         pushName: data.pushName || null,
         status: data.status || null,
         source: data.source || null,
+        author: data.author || null,
         instanceId: data.instanceId || null,
         sessionId: data.sessionId || null
       };
@@ -1396,6 +1401,7 @@ export default function ChatApp() {
 
   function mapMessageRow(m: MessageRow, mediaAttachments?: Attachment[]): Message {
     const fromMe = m.key?.fromMe === true;
+    const author = m.author || (fromMe ? "owner" : "client");
     const fromPayload = extractAttachments(m.message, {
       allowMmg: fromMe,
       allowMmgForDocuments: true
@@ -1429,6 +1435,7 @@ export default function ChatApp() {
       timestamp: formatTimestampFromSeconds(m.messageTimestamp),
       timestampMs: m.messageTimestamp ? m.messageTimestamp * 1000 : undefined,
       source: friendlySource(m.source),
+      author,
       isOwn: fromMe,
       status: m.status ?? undefined,
       keyId: m.key?.id || m.id || undefined,
@@ -1687,13 +1694,13 @@ export default function ChatApp() {
 
     setBotTogglePending(true);
     try {
-      await changeN8nStatus(instName, {
+      await changeAgnoStatus(instName, {
         remoteJid: selectedConversation.remoteJid,
         status
       });
       setBotSession((prev) => (prev ? { ...prev, status } : prev));
       if (enabled) {
-        await emitN8nLastMessage(instName, { remoteJid: selectedConversation.remoteJid });
+        await emitAgnoLastMessage(instName, { remoteJid: selectedConversation.remoteJid });
       }
     } catch (err) {
       console.error("toggle bot error", err);

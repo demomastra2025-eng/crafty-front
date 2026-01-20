@@ -49,7 +49,7 @@ export async function GET(request: Request) {
   params.push(limit);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const sql = `
-    SELECT id, key, message, "messageTimestamp", "pushName", status, source, "messageType", "instanceId", "sessionId"
+    SELECT id, key, message, "messageTimestamp", "pushName", status, source, author, "messageType", "instanceId", "sessionId"
     FROM "Message"
     ${whereSql}
     ORDER BY "messageTimestamp" ${order}

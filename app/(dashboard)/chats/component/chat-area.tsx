@@ -36,6 +36,7 @@ interface Message {
   timestamp: string;
   timestampMs?: number;
   source?: string;
+  author?: string;
   isOwn: boolean;
   status?: string;
   keyId?: string;
@@ -142,7 +143,7 @@ const statusIcon = (status?: string, isOwn?: boolean): StatusIconData | null => 
     return { icon: Pencil, className: "text-gray-500", title: "Отредактировано", sizeClass: "h-2 w-2" };
   }
   if (normalized === "READ") {
-    return { icon: LuCheck, className: "text-blue-500", title: statusLabel(status), sizeClass: "h-3 w-3" };
+    return { icon: LuCheck, className: "text-primary", title: statusLabel(status), sizeClass: "h-3 w-3" };
   }
   if (normalized === "DELIVERY_ACK" || normalized === "SERVER_ACK" || normalized === "PENDING") {
     return { icon: LuCheck, className: "text-gray-500", title: statusLabel(status), sizeClass: "h-3 w-3" };
@@ -153,7 +154,7 @@ const statusIcon = (status?: string, isOwn?: boolean): StatusIconData | null => 
 const labelColorClass = (color?: string | null) => {
   switch ((color || "").trim()) {
     case "1":
-      return "bg-blue-100 text-blue-800";
+      return "bg-muted text-foreground";
     case "2":
       return "bg-green-100 text-green-800";
     case "3":
@@ -546,7 +547,7 @@ export function ChatArea({
               className={`flex ${message.isOwn ? "justify-end" : "justify-start"}`}>
               <div
                 className={`group relative max-w-xs rounded-2xl px-4 py-2 lg:max-w-md ${
-                  message.isOwn ? "bg-blue-100 text-gray-900" : "bg-gray-100 text-gray-900"
+                  message.isOwn ? "bg-primary/10 text-gray-900" : "bg-gray-100 text-gray-900"
                 }`}>
                 {!message.isOwn && message.keyId ? (
                   <button
@@ -559,7 +560,7 @@ export function ChatArea({
                         message.status === "READ" ? "DELIVERY_ACK" : undefined
                       );
                     }}
-                    className="absolute -right-6 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 opacity-0 transition-opacity hover:text-blue-500 group-hover:opacity-100"
+                    className="absolute -right-6 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 opacity-0 transition-opacity hover:text-primary group-hover:opacity-100"
                     title={message.status === "READ" ? "Сделать непрочитанным" : "Отметить прочитанным"}>
                     <LuCheck className="h-4 w-4" />
                   </button>
@@ -575,14 +576,14 @@ export function ChatArea({
                           "SERVER_ACK"
                         );
                       }}
-                      className="rounded-full p-1 text-gray-400 hover:text-blue-500"
+                      className="rounded-full p-1 text-gray-400 hover:text-primary"
                       title="Сделать непрочитанным">
                       <LuCheck className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => startEdit(message)}
-                      className="rounded-full p-1 text-gray-400 hover:text-blue-500"
+                      className="rounded-full p-1 text-gray-400 hover:text-primary"
                       title="Редактировать сообщение">
                       <Pencil className="h-4 w-4" />
                     </button>
@@ -753,7 +754,7 @@ export function ChatArea({
                       </span>
                     ) : null;
                   })()}
-                  {message.isOwn && message.source ? <span>  {message.source}</span> : null}
+                  {message.author ? <span>{message.author}</span> : null}
                   <span>{message.timestamp}</span>
                 </div>
               </div>
@@ -887,7 +888,7 @@ export function ChatArea({
             />
           <Button
             type="submit"
-            className="rounded-xl bg-blue-500 text-white hover:bg-blue-600"
+            className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
             disabled={sending || !newMessage.trim() || !canSend || aiLocked}>
             <Send className="h-4 w-8" />
           </Button>
